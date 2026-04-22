@@ -90,7 +90,7 @@ typer==0.16.0
 typing-inspection==0.4.1
 typing_extensions
 tzdata==2025.2
-urllib3==2.4.0
+urllib3==2.6.3
 uvicorn==0.35.0
 websockets==15.0.1
 wrapt==1.17.3
