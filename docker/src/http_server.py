@@ -9,6 +9,7 @@ from src.logging_util import configure_logging, get_logger
 from src.auth.remote_auth import AuthMiddleware
 from src.config import Settings
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.types import ASGIApp, Scope, Receive, Send
 # from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import asyncio
@@ -76,6 +77,30 @@ async def lifespan(app: FastAPI):
 
 mcp_server = mcp.http_app(transport="streamable-http", path="/")
 
+
+class MCPPathNormalizer:
+    """Rewrite ``/mcp`` to ``/mcp/`` at the ASGI scope level.
+
+    Starlette's ``Mount`` returns 307 Temporary Redirect for the bare
+    mount path so the trailing slash is added. MCP clients that POST to
+    ``/mcp`` (e.g. Claude.ai) do not preserve the ``Authorization``
+    header across the redirect, so the next request is treated as
+    unauthenticated and the connection fails with an authorization
+    error. Rewriting the scope path before routing avoids the redirect
+    entirely and makes ``/mcp`` and ``/mcp/`` behave identically.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") == "http" and scope.get("path") == "/mcp":
+            scope = dict(scope)
+            scope["path"] = "/mcp/"
+            scope["raw_path"] = b"/mcp/"
+        await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
     app.mount("/static", StaticFiles(directory="src/static"), name="static")
@@ -94,7 +119,7 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
+app = MCPPathNormalizer(create_app())
 
 # This is required for testing with inspector. Uncomment when needed.
 # app.add_middleware(
