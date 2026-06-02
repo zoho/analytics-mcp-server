@@ -6,6 +6,7 @@ import dedent from "dedent";
 import path from "path";
 import fs from "fs";
 import { pollJobCompletion, QUERY_DATA_POLLING_INTERVAL, QUERY_DATA_QUEUE_TIMEOUT, QUERY_DATA_QUERY_EXECUTION_TIMEOUT, QUERY_DATA_ROW_LIMIT } from "../utils/data-util";
+import { enforceLimit } from "sql-limit-enforcer";
 
 
 export function registerDataTools(server: ServerInstance) {
@@ -13,22 +14,35 @@ export function registerDataTools(server: ServerInstance) {
     server.registerTool("query_data",
     {
         description: dedent`
-        use case:
-        - Executes a SQL query on the specified workspace and returns the top 20 rows as results.
-        - This can be used to retrieve data from Zoho Analytics using custom SQL queries.
-        - Use this when user asks for any queries from the data in the workspace.
-        - Use this to gather insights from the data in the workspace and answer user queries.
-        - Can be used to answer natural language queries by analysing the result of the SQL query.
-        
-        important_notes:
-        - Always try to provide a mysql compatible sql select query alone.
-        - Try to optimize the query to return only the required data and minimize the amount of data returned.
+        Executes a SQL query on the specified workspace and returns the top N rows as results.
+        Use this to retrieve data from Zoho Analytics using custom SQL queries, gather insights,
+        and answer natural language queries by analyzing the results.
+
+        Use Cases:
+        - Retrieve data from a Zoho Analytics workspace using custom SQL queries.
+        - Gather insights from the data and answer user queries.
+        - Answer natural language queries by analyzing SQL query results.
+
+        Important Notes:
+        - Always provide a MySQL-compatible SELECT query only.
+        - Always include a LIMIT clause and use aggregate queries (COUNT, SUM, AVG, etc.) wherever possible to minimize data transfer and avoid fetching raw rows unnecessarily.
+        - The tool enforces a maximum row cap of N rows - only the top N rows are returned regardless of how many rows the query would otherwise produce.
+        - To paginate through results beyond the first N rows, use LIMIT with OFFSET (e.g., LIMIT 20 OFFSET 20 for the next page).
         - If table or column names contain spaces or special characters, enclose them in double quotes (e.g., "Column Name").
         - Do not use more than one level of nested sub-queries.
-        - Instead of doing n queries, try to combine them into a single query using joins or unions or sub-queries, while ensuring the query remains efficient.
+        - Combine multiple lookups into a single query using JOINs, UNIONs, or sub-queries where possible, while keeping the query efficient and optimized.
 
-        returns:
-        - Result of the SQL query in a comma-separated (list of list) format of the top 20 rows alone, the first row contains the column names. 
+        Pagination Strategy:
+        Since only the top N rows are returned, when absolutely necessary, use LIMIT + OFFSET to walk through data:
+        - Page 1: LIMIT N OFFSET 0
+        - Page 2: LIMIT N OFFSET N
+        - Page 3: LIMIT N OFFSET 2N
+        The first tool response will indicate the actual value of N so you can paginate correctly. Note that the maximum value for limit is N, and it is not possible to increase this limit. If you need more rows, you must adjust the OFFSET in the query to fetch the next set of rows.
+
+        Returns:
+        - Top N rows of the query result in comma-separated (list of list) format.
+        - The first row contains column names.
+        - The response header indicates the actual value of N (e.g., "Here are the top N results").
         - If an error occurs, returns an error message.
         `,
         inputSchema: {
@@ -48,6 +62,11 @@ export function registerDataTools(server: ServerInstance) {
         try {
             if (!org_id) {
                 org_id = config.ORGID || "";
+            }
+            try {
+                sql_query = enforceLimit(sql_query, QUERY_DATA_ROW_LIMIT);
+            } catch (limitErr) {
+                // If limit enforcement fails for any reason, proceed with the original query
             }
             return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async(org_id, workspace, sql) => {
                 const analyticsClient = getAnalyticsClient();
@@ -89,7 +108,18 @@ export function registerDataTools(server: ServerInstance) {
                 const columns: string[] = rows.shift() || [];
                 const limitedRows: string[][] = rows.slice(0, QUERY_DATA_ROW_LIMIT);
 
-                return ToolResponse(`Query executed successfully. Retrieved ${limitedRows.length} rows.\n${JSON.stringify({ columns, rows: limitedRows })}`);
+                let responseMessage = `Query executed successfully. Retrieved ${limitedRows.length} rows.\n${JSON.stringify({ columns, rows: limitedRows })}`;
+                if (limitedRows.length >= QUERY_DATA_ROW_LIMIT) {
+                    responseMessage = (
+                        `Here are the top ${QUERY_DATA_ROW_LIMIT} rows for the given query (including the header row). ` +
+                        `It is possible (not confirmed) that there could be more rows this SELECT query could have produced. ` +
+                        `If you need more rows, adjust the OFFSET in the SELECT query. ` +
+                        `Note that the LIMIT cannot be increased beyond ${QUERY_DATA_ROW_LIMIT} due to system constraints.\n\n` +
+                        JSON.stringify({ columns, rows: limitedRows })
+                    );
+                }
+
+                return ToolResponse(responseMessage);
             }, workspace_id, sql_query);
         } catch (err) {
             return logAndReturnError(err, "An error occurred while executing the query");
