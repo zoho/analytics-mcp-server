@@ -51,7 +51,7 @@ export function registerModellingTools(server: ServerInstance) {
             table_name: z.string().describe("The name of the table to create"),
             columns_arr: z.array(z.object({
                 COLUMNNAME: z.string().describe("The name of the column"),
-                DATATYPE: z.enum(["PLAIN", "NUMBER", "DATE"]).describe("The data type of the column")
+                DATATYPE: z.enum(["PLAIN", "NUMBER", "DATE", "EMAIL", "CURRENCY", "URL", "POSITIVE_NUMBER", "DECIMAL_NUMBER"]).describe("The data type of the column")
             })).describe("A list of column definitions for the table"),
             org_id: z.string().optional().describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided.")
         },
@@ -82,45 +82,6 @@ export function registerModellingTools(server: ServerInstance) {
             return logAndReturnError(err, "An error occurred while creating the table");
         }
     });
-
-    // server.registerTool("create_aggregate_formula",
-    // {
-    //     description: "Create an aggregate formula in the specified table of the workspace",
-    //     inputSchema: {
-    //     workspace_id: z.string(),
-    //     table_id: z.string(),
-    //     expression: z.string(),
-    //     formula_name: z.string()
-    //     }
-    // },
-    // async ({ workspace_id, table_id, expression, formula_name }) => {
-    //     try {
-    //     const analyticsClient = getAnalyticsClient();
-    //     const view = analyticsClient.getViewInstance(config.ORGID || "", workspace_id, table_id);
-    //     var configParam = {}
-        
-    //     // Since addAggregateFormula doesn't exist, we'll need to use a different approach
-    //     // For now, we'll create a placeholder implementation
-    //     // const formulaId = await view.addAggregateFormula(formula_name, expression, configParam);
-        
-    //     // Placeholder implementation
-    //     const formulaId = "placeholder-formula-id";
-        
-    //     return {
-    //         content: [{ 
-    //         type: "text", 
-    //         text: `Aggregate formula '${formula_name}' created successfully. Formula Id: ${formulaId}` 
-    //         }]
-    //     };
-    //     } catch (error) {
-    //     return {
-    //         content: [{ 
-    //         type: "text", 
-    //         text: `An error occurred while creating the aggregate formula: ${error}` 
-    //         }]
-    //     };
-    //     }
-    // });
 
     server.registerTool("create_chart_report",
     {
