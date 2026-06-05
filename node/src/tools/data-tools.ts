@@ -11,7 +11,7 @@ import { enforceLimit } from "sql-limit-enforcer";
 
 export function registerDataTools(server: ServerInstance) {
 
-    server.registerTool("query_data",
+    server.registerTool("queryData",
     {
         description: dedent`
         Executes a SQL query on the specified workspace and returns the top N rows as results.
@@ -46,9 +46,9 @@ export function registerDataTools(server: ServerInstance) {
         - If an error occurs, returns an error message.
         `,
         inputSchema: {
-        workspace_id: z.string().describe("The ID of the workspace where the query will be executed"),
-        sql_query: z.string().describe("The SQL query to be executed"),
-        org_id: z.string().optional().describe("The organization ID for the request, if applicable. This is a mandatory parameter for shared workspaces")
+            workspaceId: z.string().describe("The ID of the workspace where the query will be executed"),
+            sqlQuery: z.string().describe("The SQL query to be executed"),
+            orgId: z.string().optional().describe("The organization ID for the request, if applicable. This is a mandatory parameter for shared workspaces")
         },
         annotations: {
           title: "Query Data",
@@ -58,17 +58,17 @@ export function registerDataTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspace_id, sql_query, org_id }) => {
+    async ({ workspaceId, sqlQuery, orgId }) => {
         try {
-            if (!org_id) {
-                org_id = config.ORGID || "";
+            if (!orgId) {
+                orgId = config.ORGID || "";
             }
             try {
-                sql_query = enforceLimit(sql_query, QUERY_DATA_ROW_LIMIT);
+                sqlQuery = enforceLimit(sqlQuery, QUERY_DATA_ROW_LIMIT);
             } catch (limitErr) {
                 // If limit enforcement fails for any reason, proceed with the original query
             }
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async(org_id, workspace, sql) => {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async(org_id, workspace, sql) => {
                 const analyticsClient = getAnalyticsClient();
                 const bulk = analyticsClient.getBulkInstance(org_id, workspace);
 
@@ -97,7 +97,7 @@ export function registerDataTools(server: ServerInstance) {
                 if (!allowedFileRoot) {
                     throw new Error(
                         "The ALLOWED_FILE_ROOT environment variable is not configured. " +
-                        "It is required for the query_data tool to work properly. " +
+                        "It is required for the queryData tool to work properly. " +
                         "Please set ALLOWED_FILE_ROOT to a writable directory."
                     );
                 }
@@ -135,14 +135,14 @@ export function registerDataTools(server: ServerInstance) {
                 }
 
                 return ToolResponse(responseMessage);
-            }, workspace_id, sql_query);
+            }, workspaceId, sqlQuery);
         } catch (err) {
             return logAndReturnError(err, "An error occurred while executing the query");
         }
     });
 
 
-    server.registerTool("export_view",
+    server.registerTool("exportView",
     {
         description: dedent`
         use_case:
@@ -152,11 +152,11 @@ export function registerDataTools(server: ServerInstance) {
         - Mostly prefer html for charts, pdf dashboards, and csv for tables.
         `,
         inputSchema: {
-            workspace_id: z.string().describe("The ID of the workspace from which to export objects"),
-            view_id: z.string().describe("The ID of the Zoho Analytics view to be exported. This can be a table, chart, or dashboard"),
-            response_file_format: z.enum(["csv", "html", "pdf", "json", "xml", "xls", "image"]).describe('The format in which to export the objects. Supported formats are ["csv","json","xml","xls","pdf","html","image"].'),
-            response_file_name: z.string().describe("The name of the exported file without extension (e.g. \"sales_report\"). The file will be saved under the configured exports directory with the extension derived from response_file_format. Do not include path separators or directory components."),
-            org_id: z.string().optional().describe("The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.")
+            workspaceId: z.string().describe("The ID of the workspace from which to export objects"),
+            viewId: z.string().describe("The ID of the Zoho Analytics view to be exported. This can be a table, chart, or dashboard"),
+            responseFileFormat: z.enum(["csv", "html", "pdf", "json", "xml", "xls", "image"]).describe('The format in which to export the objects. Supported formats are ["csv","json","xml","xls","pdf","html","image"].'),
+            responseFileName: z.string().describe("The name of the exported file without extension (e.g. \"sales_report\"). The file will be saved under the configured exports directory with the extension derived from responseFileFormat. Do not include path separators or directory components."),
+            orgId: z.string().optional().describe("The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.")
         },
         annotations: {
           title: "Export View",
@@ -166,40 +166,40 @@ export function registerDataTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspace_id, view_id, response_file_format, response_file_name, org_id }) => {
+    async ({ workspaceId, viewId, responseFileFormat, responseFileName, orgId }) => {
         try {
-            if (!org_id) {
-                org_id = config.ORGID || "";
+            if (!orgId) {
+                orgId = config.ORGID || "";
             }
 
             const allowedFileRoot = process.env.ALLOWED_FILE_ROOT;
             if (!allowedFileRoot) {
                 return ToolResponse(
                     "The ALLOWED_FILE_ROOT environment variable is not configured. " +
-                    "It is required for the export_view tool to work properly. " +
+                    "It is required for the exportView tool to work properly. " +
                     "Please set ALLOWED_FILE_ROOT to a writable directory."
                 );
             }
 
-            if (!response_file_name || response_file_name.trim() === '') {
-                return ToolResponse("response_file_name must not be empty.");
+            if (!responseFileName || responseFileName.trim() === '') {
+                return ToolResponse("responseFileName must not be empty.");
             }
-            const sanitizedFileName = path.basename(response_file_name.trim());
+            const sanitizedFileName = path.basename(responseFileName.trim());
             if (
                 sanitizedFileName === '' ||
                 sanitizedFileName === '.' ||
                 sanitizedFileName === '..' ||
-                sanitizedFileName !== response_file_name.trim()
+                sanitizedFileName !== responseFileName.trim()
             ) {
                 return ToolResponse(
-                    "Invalid response_file_name. Please provide a plain file name without directory separators or path traversal sequences."
+                    "Invalid responseFileName. Please provide a plain file name without directory separators or path traversal sequences."
                 );
             }
 
             const exportsDir = path.join(path.resolve(allowedFileRoot), "exports");
             fs.mkdirSync(exportsDir, { recursive: true });
 
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async (org_id, workspace, view, response_format, fileName)=> {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, view, response_format, fileName)=> {
                 const supportedFormats = ["csv", "json", "xml", "xls", "pdf", "html", "image"];
                 if (!supportedFormats.includes(response_format)) {
                     return ToolResponse(
@@ -218,7 +218,7 @@ export function registerDataTools(server: ServerInstance) {
                     isTabbedDashboard?: boolean;
                 }
                 const analyticsClient = getAnalyticsClient();
-                let viewDetails: ViewDetails = await analyticsClient.getViewDetails(view_id, { withInvolvedMetaInfo: true }) as ViewDetails;
+                let viewDetails: ViewDetails = await analyticsClient.getViewDetails(viewId, { withInvolvedMetaInfo: true }) as ViewDetails;
                 if (viewDetails.viewType === "Dashboard" && viewDetails.isTabbedDashboard) {
                     extension = "zip";
                 }
@@ -257,46 +257,46 @@ export function registerDataTools(server: ServerInstance) {
                 return ToolResponse(
                     `Object exported successfully to ${fullPath} in ${response_format} format.`
                 );
-            }, workspace_id, view_id, response_file_format, sanitizedFileName);
+            }, workspaceId, viewId, responseFileFormat, sanitizedFileName);
         } catch (error) {
             return logAndReturnError(error, `An error occurred while exporting the view`);
         }
     });
 
 
-    server.registerTool("import_data",
+    server.registerTool("importData",
     {
         description: dedent`
         Imports data into an existing table within a specified workspace.
 
         Data can be provided in two ways:
         - Directly as a list of JSON objects (via the \`data\` parameter)
-        - From a local file path (via \`file_path\`, with \`file_type\` set to "csv" or "json")
+        - From a local file path (via \`filePath\`, with \`fileType\` set to "csv" or "json")
 
         PREREQUISITES:
-        - The target table must already exist. If it doesn't, use \`create_table\` first.
+        - The target table must already exist. If it doesn't, use \`createTable\` first.
         - Before creating a table, inspect the source data (file or inline) to determine
           the correct column names and data types.
-        - If \`file_path\` points to a remote URL, download the file locally before using this tool.
+        - If \`filePath\` points to a remote URL, download the file locally before using this tool.
 
         BEHAVIOR:
-        - If both \`data\` and \`file_path\` are provided, \`file_path\` takes precedence.
-        - For shared workspaces, \`org_id\` is required.
+        - If both \`data\` and \`filePath\` are provided, \`filePath\` takes precedence.
+        - For shared workspaces, \`orgId\` is required.
 
         returns:
         - A success message if the import completes, or a descriptive error message if it fails.
         `,
         inputSchema: {
-            workspace_id: z.string().describe("The ID of the workspace that contains the target table."),
-            table_id: z.string().describe("The ID of the table to import data into. "),
+            workspaceId: z.string().describe("The ID of the workspace that contains the target table."),
+            tableId: z.string().describe("The ID of the table to import data into. "),
             data: z.array(z.record(z.string(), z.any())).optional().describe("Inline data to import, provided as an array of JSON objects. " +
                 "Each object represents one row, with keys mapping to column names. " +
-                "Used when no file_path is provided."),
-            file_path: z.string().optional().describe("Absolute path to a local file (CSV or JSON) containing the data to import. " +
+                "Used when no filePath is provided."),
+            filePath: z.string().optional().describe("Absolute path to a local file (CSV or JSON) containing the data to import. " +
                 "Remote URLs are not supported - download the file first if needed."),
-            file_type: z.enum(["csv", "json"]).optional().describe("Format of the file specified in file_path. " +
-            "Required when file_path is provided. Accepted values: \"csv\" or \"json\"."),
-            org_id: z.string().optional().describe("Organization ID associated with the workspace. " +
+            fileType: z.enum(["csv", "json"]).optional().describe("Format of the file specified in filePath. " +
+            "Required when filePath is provided. Accepted values: \"csv\" or \"json\"."),
+            orgId: z.string().optional().describe("Organization ID associated with the workspace. " +
                 "Required for shared workspaces. Falls back to the configured default if omitted.")
         },
         annotations: {
@@ -307,28 +307,28 @@ export function registerDataTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspace_id, table_id, data, file_path, file_type, org_id }) => {
+    async ({ workspaceId, tableId, data, filePath, fileType, orgId }) => {
         try {
-            if (!org_id) {
-                org_id = config.ORGID || "";
+            if (!orgId) {
+                orgId = config.ORGID || "";
             }
 
-            let resolvedFilePath = file_path;
-            if (file_path) {
+            let resolvedFilePath = filePath;
+            if (filePath) {
                 const allowedFileRoot = process.env.ALLOWED_FILE_ROOT;
                 if (!allowedFileRoot) {
                     return ToolResponse(
                         "The ALLOWED_FILE_ROOT environment variable is not configured. " +
-                        "It is required for the import_data tool to work properly. " +
+                        "It is required for the importData tool to work properly. " +
                         "Please set ALLOWED_FILE_ROOT to the directory from which file imports are permitted."
                     );
                 }
                 const normalizedRoot = path.resolve(allowedFileRoot);
-                const tentativePath = path.resolve(file_path);
+                const tentativePath = path.resolve(filePath);
                 if (tentativePath === normalizedRoot || tentativePath.startsWith(normalizedRoot + path.sep)) {
                     resolvedFilePath = tentativePath;
                 } else {
-                    resolvedFilePath = path.resolve(normalizedRoot, file_path);
+                    resolvedFilePath = path.resolve(normalizedRoot, filePath);
                     if (resolvedFilePath !== normalizedRoot && !resolvedFilePath.startsWith(normalizedRoot + path.sep)) {
                         return ToolResponse(
                             `The provided file path resolves outside the allowed file root directory (${normalizedRoot}). ` +
@@ -338,7 +338,7 @@ export function registerDataTools(server: ServerInstance) {
                 }
             }
 
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async (org_id, workspace, table, input , filePath, type) => {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, table, input , filePath, type) => {
                 const analyticsClient = getAnalyticsClient();
                 const bulk = analyticsClient.getBulkInstance(org_id || "", workspace);
                 if (filePath) {
@@ -356,11 +356,11 @@ export function registerDataTools(server: ServerInstance) {
                     return ToolResponse(JSON.stringify(result));
                 }
                 if (!input) {
-                    return ToolResponse("No data provided to import. Please provide either 'data' or 'file_path'.");
+                    return ToolResponse("No data provided to import. Please provide either 'data' or 'filePath'.");
                 }
                 const result = await bulk.importRawData(table, "append", "json", "true", JSON.stringify(input), { delimiter: '0' });
                 return ToolResponse(JSON.stringify(result));
-            }, workspace_id, table_id,  data, resolvedFilePath, file_type);
+            }, workspaceId, tableId,  data, resolvedFilePath, fileType);
         } catch (error) {
             return logAndReturnError(error, "An error occurred while importing data into the table");
         }
