@@ -5,7 +5,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const FormData = require('form-data');
 const querystring = require('querystring');
-const clientVersion = "2.8.0";
+const mcpVersionTag = "v1.0.1";
 
 
 class AnalyticsClient
@@ -280,7 +280,7 @@ class AnalyticsClient
         const https = require('https');
         const FormData = require('form-data');
     
-        header['User-Agent'] = 'MCP Server NPM Client: v1' + clientVersion;
+        header['User-Agent'] = 'MCP Server NPM Client:' + mcpVersionTag;
     
         const delimiters = [',', '\t', ';', ' ', '|'];
         const quotedChars = ['\u0000', '\'', '"'];
@@ -409,7 +409,7 @@ async handleImportRequest(uriPath, config, header, filePath, data = null) {
 }
 
 sendImportRequest(uriPath, config, header = {}, filePath, data) {
-    header['User-Agent'] = 'MCP Server NPM Client: v1' + clientVersion;
+    header['User-Agent'] = 'MCP Server NPM Client:' + mcpVersionTag;
     header['Authorization'] = 'Zoho-oauthtoken ' + this.accessToken;
 
     if (config !== null) {
@@ -496,7 +496,7 @@ sendExportRequest(
     header = {},
     { filePath = null, stream = false } = {}
 ) {
-    header['User-Agent'] = 'MCP Server NPM Client: v1' + clientVersion;
+    header['User-Agent'] = 'MCP Server NPM Client:' + mcpVersionTag;
     header['Authorization'] = 'Zoho-oauthtoken ' + this.accessToken;
 
     if (config) {
@@ -577,7 +577,7 @@ async handleV2Request(uriPath, method, config, header, isExportReq = false) {
 }
 
 sendV2Request(uriPath, reqMethod, config, header = {}, isExportReq = false) {
-    header['User-Agent'] = 'MCP Server NPM Client: v1' + clientVersion;
+    header['User-Agent'] = 'MCP Server NPM Client:' + mcpVersionTag;
     header['Authorization'] = 'Zoho-oauthtoken ' + this.accessToken;
 
     if (config !== null && Object.keys(config).length !== 0) {
@@ -642,7 +642,7 @@ getOauth() {
         path: '/oauth/v2/token',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'MCP Server NPM Client: v1' + clientVersion,
+            'User-Agent': 'MCP Server NPM Client:' + mcpVersionTag,
             'Content-Length': Buffer.byteLength(encodedParams)
         },
         method: "POST"
