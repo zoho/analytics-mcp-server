@@ -343,7 +343,7 @@ export function registerDataTools(server: ServerInstance) {
                 const bulk = analyticsClient.getBulkInstance(org_id || "", workspace);
                 if (filePath) {
                     if ((filePath as string).startsWith("https")) {
-                        return ToolResponse("File path cannot be a remote URL. Please download the file using the download_file tool and provide the local file path.");
+                        return ToolResponse("File path cannot be a remote URL. Please download the file first and provide the local file path.");
                     }
                     const fs = require('fs');
                     if (!fs.existsSync(filePath)) {
