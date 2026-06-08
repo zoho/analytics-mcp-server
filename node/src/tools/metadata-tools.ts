@@ -80,9 +80,9 @@ async function getViews(
         }
 
         if (!fromRelevantViewsTool && Array.isArray(viewList) && viewList.length > VIEW_RESULT_LIMIT) {
-          return `Too many views found. Please refine your search criteria to use contains_str parameter to filter views if view name is provided.
+          return `Too many views found. Please refine your search criteria to use viewContainsStr parameter to filter views if view name is provided.
 (or)
-Use the search_views() tool with a natural language query to get relevant views based on user query.`;
+Use the searchViews() tool with a natural language query to get relevant views based on user query.`;
         }
 
         return viewList;
@@ -96,7 +96,7 @@ function filterValidNumbers(input: number[], validNumbers: number[]): number[] {
 
 export function registerMetaDataTools(server: ServerInstance) {
 
-  server.registerTool("get_workspaces_list",
+  server.registerTool("getWorkspacesList",
     {
       description: `
       <use_case>
@@ -105,8 +105,8 @@ export function registerMetaDataTools(server: ServerInstance) {
       </use_case>
 
       <important_notes>
-        1) Try to avoid setting include_shared_workspaces to True unless you specifically need to see shared workspaces.
-        2) If you don't find a workspace from the owned workspaces, try setting include_shared_workspaces to True to see if the workspace is shared with you.
+        1) Try to avoid setting includeSharedWorkspaces to True unless you specifically need to see shared workspaces.
+        2) If you don't find a workspace from the owned workspaces, try setting includeSharedWorkspaces to True to see if the workspace is shared with you.
       </important_notes>
 
       <returns>
@@ -115,8 +115,8 @@ export function registerMetaDataTools(server: ServerInstance) {
       </returns>
       `,
       inputSchema: {
-        include_shared_workspaces: z.boolean().describe("If True, includes shared workspaces in the list"),
-        contains_str: z.string().optional().describe("Optional string to filter workspaces with a contains criteria")
+        includeSharedWorkspaces: z.boolean().describe("If True, includes shared workspaces in the list"),
+        containsStr: z.string().optional().describe("Optional string to filter workspaces with a contains criteria")
       },
       annotations: {
         title: "Get Workspaces List",
@@ -126,22 +126,22 @@ export function registerMetaDataTools(server: ServerInstance) {
         openWorldHint: false
       }
     },
-    async ({ include_shared_workspaces, contains_str }) => {
+    async ({ includeSharedWorkspaces, containsStr }) => {
       try {
         const MAX_WORKSPACES = 20;
         var ac = getAnalyticsClient();
         let allWorkspaces;
-        if (!include_shared_workspaces) {
+        if (!includeSharedWorkspaces) {
           const ownedWorkspaces = await ac.getOwnedWorkspaces();
-          const result = filterAndLimitWorkspaces(ownedWorkspaces, contains_str, true, MAX_WORKSPACES);
+          const result = filterAndLimitWorkspaces(ownedWorkspaces, containsStr, true, MAX_WORKSPACES);
           return ToolResponse(JSON.stringify(result));
         } else {
           const allWorkspaces = await ac.getWorkspaces();
           const ownedWorkspaces = allWorkspaces.ownedWorkspaces || [];
           const sharedWorkspaces = allWorkspaces.sharedWorkspaces || [];
-          const ownedResult = filterAndLimitWorkspaces(ownedWorkspaces, contains_str, true, MAX_WORKSPACES);
+          const ownedResult = filterAndLimitWorkspaces(ownedWorkspaces, containsStr, true, MAX_WORKSPACES);
           const remainingCapacity = MAX_WORKSPACES - ownedResult.length;
-          const sharedResult = filterAndLimitWorkspaces(sharedWorkspaces, contains_str, false, remainingCapacity);
+          const sharedResult = filterAndLimitWorkspaces(sharedWorkspaces, containsStr, false, remainingCapacity);
           const combinedResult = [...ownedResult, ...sharedResult];
           return ToolResponse(JSON.stringify(combinedResult));
         }
@@ -150,7 +150,7 @@ export function registerMetaDataTools(server: ServerInstance) {
       }
   });
 
-  server.registerTool("get_view_details",
+  server.registerTool("getViewDetails",
   {
       description: `
       <use_case>
@@ -164,7 +164,7 @@ export function registerMetaDataTools(server: ServerInstance) {
       </returns>
       `,
       inputSchema: {
-          view_id: z.string().describe("The ID of the view for which to fetch details")
+          viewId: z.string().describe("The ID of the view for which to fetch details")
       },
       annotations: {
         title: "Get View Details",
@@ -174,10 +174,10 @@ export function registerMetaDataTools(server: ServerInstance) {
         openWorldHint: false
       }
   },
-  async ({ view_id }) => {
+  async ({ viewId }) => {
       try {
           const analyticsClient = getAnalyticsClient();
-          let viewDetails = await analyticsClient.getViewDetails(view_id, { withInvolvedMetaInfo: true });
+          let viewDetails = await analyticsClient.getViewDetails(viewId, { withInvolvedMetaInfo: true });
           if (viewDetails) {
               if ('orgId' in viewDetails) {
                   delete (viewDetails as any).orgId;
@@ -205,14 +205,14 @@ export function registerMetaDataTools(server: ServerInstance) {
                   });
               }
           }
-          return ToolResponse(`Retrieved details for view ID: ${view_id}\n${JSON.stringify(viewDetails)}`);
+          return ToolResponse(`Retrieved details for view ID: ${viewId}\n${JSON.stringify(viewDetails)}`);
       } catch (err) {
           return logAndReturnError(err, "An error occurred while fetching view details");
       }
   }
   );
 
-  server.registerTool("search_views",
+  server.registerTool("searchViews",
   {
     description: `
     use_case:
@@ -220,17 +220,17 @@ export function registerMetaDataTools(server: ServerInstance) {
     2) Use this when you need to find specific views or views relevant to a question.
     
     important_notes:
-    - If view_contains_str is provided, performs simple string matching on view names.
-    - If view_contains_str is None and natural_language_query is provided, performs intelligent RAG-based search using natural language.
-    - If both view_contains_str and natural_language_query are provided, view_contains_str takes precedence and RAG search is not performed.
+    - If viewContainsStr is provided, performs simple string matching on view names.
+    - If viewContainsStr is None and naturalLanguageQuery is provided, performs intelligent RAG-based search using natural language.
+    - If both viewContainsStr and naturalLanguageQuery are provided, viewContainsStr takes precedence and RAG search is not performed.
     - If both are None, returns views without filtering (may error if too many).
     - If not specified explicitly, uses [0, 6] as default value for allowedViewTypesIds (Table and Query Table).
     
      arguments:
-     - workspace_id: The ID of the workspace to search in.
-     - natural_language_query: Natural language query for intelligent search. Ignored if view_contains_str is provided.
-     - view_contains_str: String to filter views by name matching. Takes precedence over natural_language_query.
-     - allowed_view_types_ids: Optional array of view type IDs to filter results. It should be an array of integers. Different types of views available in zoho analytics are:
+     - workspaceId: The ID of the workspace to search in.
+     - naturalLanguageQuery: Natural language query for intelligent search. Ignored if viewContainsStr is provided.
+     - viewContainsStr: String to filter views by name matching. Takes precedence over naturalLanguageQuery.
+     - allowedViewTypesIds: Optional array of view type IDs to filter results. It should be an array of integers. Different types of views available in zoho analytics are:
       (view type_id, view_type_name)
       0 - Table: A standard table
       2 - Chart: A graphical representation of data
@@ -238,17 +238,17 @@ export function registerMetaDataTools(server: ServerInstance) {
       4 - Summary View: A view that provides a simple tabular summary of your data with aggregate functions applied
       6 - Query Table: A derived table created from a custom SQL query
       7 - Dashboard: A collection of visualizations and reports
-    - org_id: Organization ID. Defaults to config value if not provided.
+    - orgId: Organization ID. Defaults to config value if not provided.
 
     returns:
     - A JSON stringified array of views matching the criteria or an error message string.
     `,
        inputSchema: {
-       workspace_id: z.string(),
-       natural_language_query: z.string().optional(),
-       view_contains_str: z.string().optional(),
-       allowed_view_types_ids: z.array(z.number()).optional(),
-       org_id: z.string().nullable().optional(),
+       workspaceId: z.string(),
+       naturalLanguageQuery: z.string().optional(),
+       viewContainsStr: z.string().optional(),
+       allowedViewTypesIds: z.array(z.number()).optional(),
+       orgId: z.string().nullable().optional(),
      },
     annotations: {
       title: "Search Views",
@@ -258,12 +258,12 @@ export function registerMetaDataTools(server: ServerInstance) {
       openWorldHint: false
     }
   },
-   async ({ workspace_id, natural_language_query, view_contains_str, allowed_view_types_ids, org_id }) => {
+   async ({ workspaceId, naturalLanguageQuery, viewContainsStr, allowedViewTypesIds, orgId }) => {
      try {
-       if (!org_id) {
-         org_id = config.ORGID || "";
+       if (!orgId) {
+         orgId = config.ORGID || "";
        }
-       return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async (org_id, workspace, natLangQuery, view_str, allowed_view_types_ids) => {
+       return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, natLangQuery, view_str, allowed_view_types_ids) => {
          if (
            (view_str && view_str.trim() !== "") ||
            !natLangQuery ||
@@ -400,9 +400,9 @@ Strictly provide your output in the following JSON format:
 
       console.log(`Final result: ${currentViewList.length} views after ${epoch - 1} epochs`);
         return ToolResponse(JSON.stringify(currentViewList));
-        }, workspace_id, natural_language_query, view_contains_str, allowed_view_types_ids);
+        }, workspaceId, naturalLanguageQuery, viewContainsStr, allowedViewTypesIds);
     } catch (error) {
-      return logAndReturnError(error, `Error in search_views: ${(error as Error).message || error}`);
+      return logAndReturnError(error, `Error in searchViews: ${(error as Error).message || error}`);
     }
   });
 

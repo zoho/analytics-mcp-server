@@ -35,7 +35,9 @@ export function inferDataType(value: string): "PLAIN" | "NUMBER" | "DATE" {
 export const QUERY_DATA_POLLING_INTERVAL = 2000; // 2 seconds
 export const QUERY_DATA_QUEUE_TIMEOUT = 30 * 1000; // 30 seconds
 export const QUERY_DATA_QUERY_EXECUTION_TIMEOUT = 60 * 1000; // 60 seconds
-export const QUERY_DATA_ROW_LIMIT = 20;
+
+const _rawRowLimit = parseInt(process.env.QUERY_DATA_RESULT_ROW_LIMITS || "20", 10);
+export const QUERY_DATA_ROW_LIMIT = (!isNaN(_rawRowLimit) && _rawRowLimit <= 1000) ? _rawRowLimit : 1000;
 
 
 export async function pollJobCompletion(

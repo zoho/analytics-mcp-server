@@ -6,11 +6,11 @@ import dedent from "dedent";
 
 export function registerModellingTools(server: ServerInstance) {
 
-    server.registerTool("create_workspace",
+    server.registerTool("createWorkspace",
     {
         description: "Create a new workspace in Zoho Analytics with the given name",
         inputSchema: {
-        workspace_name: z.string().describe("Name of the workspace to create")
+        workspaceName: z.string().describe("Name of the workspace to create")
         },
         annotations: {
           title: "Create Workspace",
@@ -20,13 +20,13 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspace_name }) => {
+    async ({ workspaceName }) => {
         try {
             const ac = getAnalyticsClient();
             const org = ac.getOrgInstance(config.ORGID || "");
             const configParam = {};
-            const workspace_id = await org.createWorkspace(workspace_name, configParam);
-            return ToolResponse(`Workspace '${workspace_name}' created successfully. Workspace Id: ${workspace_id}`);
+            const workspace_id = await org.createWorkspace(workspaceName, configParam);
+            return ToolResponse(`Workspace '${workspaceName}' created successfully. Workspace Id: ${workspace_id}`);
         } catch (err) {
             if (
                 typeof err === "object" &&
@@ -43,17 +43,17 @@ export function registerModellingTools(server: ServerInstance) {
     });
 
 
-    server.registerTool("create_table",
+    server.registerTool("createTable",
     {
         description: "Create a new table in the given workspace with the given name",
         inputSchema: {
-            workspace_id: z.string().describe("The ID of the workspace in which to create the table"),
-            table_name: z.string().describe("The name of the table to create"),
-            columns_arr: z.array(z.object({
+            workspaceId: z.string().describe("The ID of the workspace in which to create the table"),
+            tableName: z.string().describe("The name of the table to create"),
+            columnsArr: z.array(z.object({
                 COLUMNNAME: z.string().describe("The name of the column"),
-                DATATYPE: z.enum(["PLAIN", "NUMBER", "DATE"]).describe("The data type of the column")
+                DATATYPE: z.enum(["PLAIN", "NUMBER", "DATE", "EMAIL", "CURRENCY", "URL", "POSITIVE_NUMBER", "DECIMAL_NUMBER"]).describe("The data type of the column")
             })).describe("A list of column definitions for the table"),
-            org_id: z.string().optional().describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided.")
+            orgId: z.string().optional().describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided.")
         },
         annotations: {
           title: "Create Table",
@@ -63,12 +63,12 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspace_id, table_name, columns_arr, org_id }) => {
+    async ({ workspaceId, tableName, columnsArr, orgId }) => {
         try {
-            if (!org_id) {
-                org_id = config.ORGID || "";
+            if (!orgId) {
+                orgId = config.ORGID || "";
             }
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async (org_id, workspace, tableAlias, cols_arr) => {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, tableAlias, cols_arr) => {
                 const tableDesign = {
                     TABLENAME: tableAlias,
                     COLUMNS: cols_arr
@@ -76,53 +76,14 @@ export function registerModellingTools(server: ServerInstance) {
                 const analyticsClient = getAnalyticsClient();
                 const workspaceInst = analyticsClient.getWorkspaceInstance(config.ORGID || "", workspace);
                 const tableId = await workspaceInst.createTable(tableDesign);
-                return ToolResponse(`Table '${table_name}' created successfully. Table Id: ${tableId}`);
-            }, workspace_id, table_name, columns_arr);
+                return ToolResponse(`Table '${tableName}' created successfully. Table Id: ${tableId}`);
+            }, workspaceId, tableName, columnsArr);
         } catch (err) {
             return logAndReturnError(err, "An error occurred while creating the table");
         }
     });
 
-    // server.registerTool("create_aggregate_formula",
-    // {
-    //     description: "Create an aggregate formula in the specified table of the workspace",
-    //     inputSchema: {
-    //     workspace_id: z.string(),
-    //     table_id: z.string(),
-    //     expression: z.string(),
-    //     formula_name: z.string()
-    //     }
-    // },
-    // async ({ workspace_id, table_id, expression, formula_name }) => {
-    //     try {
-    //     const analyticsClient = getAnalyticsClient();
-    //     const view = analyticsClient.getViewInstance(config.ORGID || "", workspace_id, table_id);
-    //     var configParam = {}
-        
-    //     // Since addAggregateFormula doesn't exist, we'll need to use a different approach
-    //     // For now, we'll create a placeholder implementation
-    //     // const formulaId = await view.addAggregateFormula(formula_name, expression, configParam);
-        
-    //     // Placeholder implementation
-    //     const formulaId = "placeholder-formula-id";
-        
-    //     return {
-    //         content: [{ 
-    //         type: "text", 
-    //         text: `Aggregate formula '${formula_name}' created successfully. Formula Id: ${formulaId}` 
-    //         }]
-    //     };
-    //     } catch (error) {
-    //     return {
-    //         content: [{ 
-    //         type: "text", 
-    //         text: `An error occurred while creating the aggregate formula: ${error}` 
-    //         }]
-    //     };
-    //     }
-    // });
-
-    server.registerTool("create_chart_report",
+    server.registerTool("createChartReport",
     {
     description: dedent`
     1.Use Cases:
@@ -131,27 +92,27 @@ export function registerModellingTools(server: ServerInstance) {
 
     2.Important Notes:
     - A chart is a report that visually represents data from a table or multiple tables.
-    - If y-axis operation is "actual", only "scatter" chart is allowed. For all other chart types, use "sum" for numeric columns and "count" for string columns in y-axis.
+    - If yAxis operation is "actual", only "scatter" chart is allowed. For all other chart types, use "sum" for numeric columns and "count" for string columns in yAxis.
     - Charts can include filters to narrow down the dataset.
     - A chart can be created over columns from the same table or from other tables with which a relationship is defined.
-    - For x-axis operations for numeric columns, use "measure" or "dimension" instead of "actual", depending upon the type of the numeric column.
+    - For xAxis operations for numeric columns, use "measure" or "dimension" instead of "actual", depending upon the type of the numeric column.
     
     3.Arguments:
-    - workspace_id (str): ID of the workspace to create the chart in.
-    - table_name (str): The base table name for the chart.
-    - chart_name (str): Desired name for the chart report.
-    - chart_details (dict): Details of the chart including:
+    - workspaceId (str): ID of the workspace to create the chart in.
+    - tableName (str): The base table name for the chart.
+    - chartName (str): Desired name for the chart report.
+    - chartDetails (dict): Details of the chart including:
         - chartType (str): One of ["bar", "line", "pie", "scatter", "bubble"]
-        - x_axis (dict):
+        - xAxis (dict):
             - columnName (str)
             - operation (str): 
                 For string:- actual, count, distinctCount
                 For number:- sum, average, min, max, measure, dimension, count, distinctCount
                 For dates:- year, month, week, fullDate, dateTime, range, count, distinctCount
             - tableName (optional [str]): If the column belongs to another table with which a relationship is defined with base table, provide the tableName.
-        - y_axis (dict): Same structure as x_axis
+        - yAxis (dict): Same structure as xAxis
     - filters (list[dict] | None): Optional. Filter definitions per <filters_args>.
-    - org_id (str | None): The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.
+    - orgId (str | None): The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.
     
         3.1.Filter Arguments:
         - tableName (str): The name of the table containing the column to filter.
@@ -172,14 +133,14 @@ export function registerModellingTools(server: ServerInstance) {
     - str: Chart creation status or error message.
     `,
     inputSchema: {
-      workspace_id: z.string(),
-      table_name: z.string(),
-      chart_name: z.string(),
-      chart_details: z
+      workspaceId: z.string(),
+      tableName: z.string(),
+      chartName: z.string(),
+      chartDetails: z
         .object({
           chartType: z
             .enum(["bar", "line", "pie", "scatter", "bubble"]),
-          x_axis: z
+          xAxis: z
             .object({
               columnName: z.string(),
               operation: z.string(),
@@ -187,7 +148,7 @@ export function registerModellingTools(server: ServerInstance) {
                 .string()
                 .optional()
             }),
-          y_axis: z
+          yAxis: z
             .object({
               columnName: z.string(),
               operation: z.string(),
@@ -210,7 +171,7 @@ export function registerModellingTools(server: ServerInstance) {
           })
         )
         .optional(),
-      org_id: z
+      orgId: z
          .string()
          .optional(),
      },
@@ -223,39 +184,39 @@ export function registerModellingTools(server: ServerInstance) {
      }
    },
    async ({
-     workspace_id,
-     table_name,
-     chart_name,
-     chart_details,
+     workspaceId,
+     tableName,
+     chartName,
+     chartDetails,
      filters,
-     org_id,
+     orgId,
      }) => {
      
      try {
-         if (!org_id) {
-             org_id = config.ORGID || "";
+         if (!orgId) {
+             orgId = config.ORGID || "";
          }
-        if (!chart_details.chartType) {
-            return ToolResponse("Chart type is required. Please provide 'chartType' in chart_details.");
+        if (!chartDetails.chartType) {
+            return ToolResponse("Chart type is required. Please provide 'chartType' in chartDetails.");
         }
-        const { chartType, x_axis, y_axis } = chart_details;
-        if (!x_axis || !y_axis) {
-            return ToolResponse("Both x_axis and y_axis must be provided in chart_details.");
+        const { chartType, xAxis, yAxis } = chartDetails;
+        if (!xAxis || !yAxis) {
+            return ToolResponse("Both xAxis and yAxis must be provided in chartDetails.");
         }
-        if (!x_axis.columnName || !x_axis.operation) {
-            return ToolResponse("x_axis must contain 'columnName' and 'operation'.");
+        if (!xAxis.columnName || !xAxis.operation) {
+            return ToolResponse("xAxis must contain 'columnName' and 'operation'.");
         }
-        if (!y_axis.columnName || !y_axis.operation) {
-            return ToolResponse("y_axis must contain 'columnName' and 'operation'.");
+        if (!yAxis.columnName || !yAxis.operation) {
+            return ToolResponse("yAxis must contain 'columnName' and 'operation'.");
         }
-        if (["bar", "line", "pie", "bubble"].includes(chartType) && ["Measure", "sum", "average", "min", "max"].includes(x_axis.operation)) {
-            return ToolResponse(`For chart type '${chartType}', x_axis operation cannot be '${x_axis.operation}'. Use 'dimension' instead.`);
+        if (["bar", "line", "pie", "bubble"].includes(chartType) && ["Measure", "sum", "average", "min", "max"].includes(xAxis.operation)) {
+            return ToolResponse(`For chart type '${chartType}', xAxis operation cannot be '${xAxis.operation}'. Use 'dimension' instead.`);
         }
-        if (["bar", "line", "pie", "bubble"].includes(chartType) && y_axis.operation === "actual") {
-            return ToolResponse(`For chart type '${chartType}', y_axis operation cannot be 'actual'. Use 'sum' instead.`);
+        if (["bar", "line", "pie", "bubble"].includes(chartType) && yAxis.operation === "actual") {
+            return ToolResponse(`For chart type '${chartType}', yAxis operation cannot be 'actual'. Use 'sum' instead.`);
         }
         const axisColumns: any[] = [];
-        for (const [axisType, axis] of [["xAxis", x_axis], ["yAxis", y_axis]] as const) {
+        for (const [axisType, axis] of [["xAxis", xAxis], ["yAxis", yAxis]] as const) {
             const axisConfig: Record<string, any> = {
                 type: axisType,
                 columnName: axis.columnName,
@@ -265,8 +226,8 @@ export function registerModellingTools(server: ServerInstance) {
             axisColumns.push(axisConfig);
         }
         const conf: Record<string, any> = {
-            baseTableName: table_name,
-            title: chart_name,
+            baseTableName: tableName,
+            title: chartName,
             reportType: "chart",
             chartType,
             axisColumns,
@@ -282,12 +243,12 @@ export function registerModellingTools(server: ServerInstance) {
             }
             conf.filters = filters;
         }
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async (org_id, workspace) => {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace) => {
                 const ac = getAnalyticsClient();
                 const workspaceInst = ac.getWorkspaceInstance(org_id || "", workspace);
                 const reportId = await workspaceInst.createReport(conf);
                 return ToolResponse(`Chart report created successfully. Report ID: ${reportId}`);
-            }, workspace_id);
+            }, workspaceId);
     } catch (error: any) {
         if (typeof error.message === "string" && error.message.includes("Invalid input") && error.message.includes("operation") && error.message.includes("actual")) {
             return logAndReturnError("Invalid operation 'actual' for numeric column. Use 'sum' or 'count' instead.", "Chart creation error");
@@ -310,7 +271,7 @@ export function registerModellingTools(server: ServerInstance) {
   }
     );
 
-    server.registerTool("create_summary_report",
+    server.registerTool("createSummaryReport",
     {
         description: dedent`
         1. use_case:
@@ -323,11 +284,11 @@ export function registerModellingTools(server: ServerInstance) {
         - You can use lookup columns from other tables if relationships are already defined.
 
         3. arguments:
-        - workspace_id (str): The ID of the workspace to create the Summary report in.
-        - table_name (str): The name of the base table for the summary report.
-        - report_name (str): The name for the Summary to be created.
-        - summary_details (dict): Contains:
-            - group_by (list[dict]):
+        - workspaceId (str): The ID of the workspace to create the Summary report in.
+        - tableName (str): The name of the base table for the summary report.
+        - reportName (str): The name for the Summary to be created.
+        - summaryDetails (dict): Contains:
+            - groupBy (list[dict]):
                 Each dict must have:
                 - columnName (str)
                 - tableName (str)
@@ -339,8 +300,8 @@ export function registerModellingTools(server: ServerInstance) {
                 - columnName (str)
                 - operation (str): sum, average, count, min, max, etc.
                 - tableName (str): Need to be provided if the column belongs to another table with which a lookup is defined.
-        - filters (list[dict] | None): Optional filters. See <filters_args> in create_chart tool.
-        - org_id (str | None): The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.
+        - filters (list[dict] | None): Optional filters. See <filters_args> in createChartReport tool.
+        - orgId (str | None): The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.
         
             3.1. filter_args:
             - tableName (str): The name of the table containing the column to filter.
@@ -361,11 +322,11 @@ export function registerModellingTools(server: ServerInstance) {
         - str: Chart creation status or error message.
         `,
         inputSchema: {
-            workspace_id: z.string(),
-            table_name: z.string(),
-            report_name: z.string(),
-            summary_details: z.object({
-                group_by: z.array(z.object({
+            workspaceId: z.string(),
+            tableName: z.string(),
+            reportName: z.string(),
+            summaryDetails: z.object({
+                groupBy: z.array(z.object({
                     columnName: z.string(),
                     tableName: z.string(),
                     operation: z.string()
@@ -384,7 +345,7 @@ export function registerModellingTools(server: ServerInstance) {
                 values: z.array(z.string()),
                 exclude: z.boolean()
             })).optional(),
-            org_id: z.string().optional()
+            orgId: z.string().optional()
         },
         annotations: {
           title: "Create Summary Report",
@@ -394,16 +355,16 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspace_id, table_name, report_name, summary_details, filters, org_id }) => {
+    async ({ workspaceId, tableName, reportName, summaryDetails, filters, orgId }) => {
         try {
-            if (!org_id) {
-                org_id = config.ORGID || "";
+            if (!orgId) {
+                orgId = config.ORGID || "";
             }
-            if (!summary_details.group_by || !summary_details.aggregate) {
-                return ToolResponse("Both 'group_by' and 'aggregate' must be provided in summary_details.");
+            if (!summaryDetails.groupBy || !summaryDetails.aggregate) {
+                return ToolResponse("Both 'groupBy' and 'aggregate' must be provided in summaryDetails.");
             }
             const axisColumns: any[] = [];
-            for (const gb of summary_details.group_by) {
+            for (const gb of summaryDetails.groupBy) {
                 axisColumns.push({
                     type: "groupBy",
                     columnName: gb.columnName,
@@ -411,7 +372,7 @@ export function registerModellingTools(server: ServerInstance) {
                     tableName: gb.tableName
                 });
             }
-            for (const ag of summary_details.aggregate) {
+            for (const ag of summaryDetails.aggregate) {
                 if (ag.operation === "actual") {
                     return ToolResponse("Invalid operation 'actual' in aggregate. Use 'sum', 'count', etc.");
                 }
@@ -423,26 +384,26 @@ export function registerModellingTools(server: ServerInstance) {
                 });
             }
             const conf: any = {
-                baseTableName: table_name,
-                title: report_name,
+                baseTableName: tableName,
+                title: reportName,
                 reportType: "summary",
                 axisColumns
             };
             if (filters) {
                 conf.filters = filters;
             }
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async (org_id, workspace) => {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace) => {
                 const analyticsClient = getAnalyticsClient();
                 const workspaceInst = analyticsClient.getWorkspaceInstance(org_id || "", workspace);
                 const reportId = await workspaceInst.createReport(conf);
                 return ToolResponse(`Summary report created successfully. Report ID: ${reportId}`);
-            },workspace_id);
+            },workspaceId);
         } catch (err) {
             return logAndReturnError(err, "An error occurred while creating the summary report");
         }
     });
 
-    server.registerTool("create_pivot_report",
+    server.registerTool("createPivotReport",
     {
         description: dedent`
     1. use_cases:
@@ -461,15 +422,15 @@ export function registerModellingTools(server: ServerInstance) {
     For data fields, prefer aggregate operations like sum, count, etc.
 
     3. arguments:
-    - workspace_id (str): ID of the workspace to create the report in.
-    - table_name (str): Base table name for the report.
-    - report_name (str): Desired name of the pivot report.
-    - pivot_details (dict): Contains:
+    - workspaceId (str): ID of the workspace to create the report in.
+    - tableName (str): Base table name for the report.
+    - reportName (str): Desired name of the pivot report.
+    - pivotDetails (dict): Contains:
         - row (optional(list[dict])): Each dict must have 'columnName' and 'tableName' and 'operation'.
         - column (optional(list[dict])): Same structure as row.
         - data (optional(list[dict])): same structure as row.
     - filters (list[dict] | None): Optional filters to restrict data scope. Filter definitions per <filters_args>.
-    - org_id (str | None): The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.
+    - orgId (str | None): The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.
 
         3.1. filters_args:
         - tableName (str): The name of the table containing the column to filter.
@@ -487,10 +448,10 @@ export function registerModellingTools(server: ServerInstance) {
         - exclude (bool): Whether to exclude or include the filtered values. Default is False.
         `,
         inputSchema: {
-        workspace_id: z.string(),
-        table_name: z.string(),
-        report_name: z.string(),
-        pivot_details: z.object({
+        workspaceId: z.string(),
+        tableName: z.string(),
+        reportName: z.string(),
+        pivotDetails: z.object({
             row: z.array(z.object({
             columnName: z.string(),
             tableName: z.string(),
@@ -515,7 +476,7 @@ export function registerModellingTools(server: ServerInstance) {
             values: z.array(z.string()),
             exclude: z.boolean()
         })).optional(),
-        org_id: z.string().optional()
+        orgId: z.string().optional()
         },
         annotations: {
           title: "Create Pivot Report",
@@ -525,21 +486,21 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspace_id, table_name, report_name, pivot_details, filters, org_id }) => {
+    async ({ workspaceId, tableName, reportName, pivotDetails, filters, orgId }) => {
         try {
-            if (!org_id) {
-                org_id = config.ORGID || "";
+            if (!orgId) {
+                orgId = config.ORGID || "";
             }
-            if (!pivot_details) {
+            if (!pivotDetails) {
                 return ToolResponse("Pivot details must be provided.");
             }
-            if (!pivot_details.row && !pivot_details.column && !pivot_details.data) {
-                return ToolResponse("At least one of 'row', 'column', or 'data' must be provided in pivot_details.");
+            if (!pivotDetails.row && !pivotDetails.column && !pivotDetails.data) {
+                return ToolResponse("At least one of 'row', 'column', or 'data' must be provided in pivotDetails.");
             }
             const axisColumns: any[] = [];
             const requiredKeys = ["columnName", "tableName", "operation"];
             for (const [axisType, axisKey] of [["row", "row"], ["column", "column"], ["data", "data"]] as const) {
-                const axisList = (pivot_details as any)[axisKey];
+                const axisList = (pivotDetails as any)[axisKey];
                 if (axisList) {
                     if (!Array.isArray(axisList) || axisList.length === 0) {
                         return ToolResponse(`${axisKey} must be a non-empty list of dictionaries with 'columnName', 'tableName', and 'operation'.`);
@@ -559,8 +520,8 @@ export function registerModellingTools(server: ServerInstance) {
                 }
             }
             const conf: any = {
-                baseTableName: table_name,
-                title: report_name,
+                baseTableName: tableName,
+                title: reportName,
                 reportType: "pivot",
                 axisColumns
             };
@@ -575,25 +536,25 @@ export function registerModellingTools(server: ServerInstance) {
                 }
                 conf.filters = filters;
             }
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async (org_id, workspace, bodyConf) => {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, bodyConf) => {
                 const analyticsClient = getAnalyticsClient();
                 const workspaceInst = analyticsClient.getWorkspaceInstance(org_id || "", workspace);
                 const reportId = await workspaceInst.createReport(bodyConf);
                 return ToolResponse(`Pivot report created successfully. Report ID: ${reportId}`);
-            }, workspace_id, conf);
+            }, workspaceId, conf);
         } catch (err) {
             return logAndReturnError(err, "An error occurred while creating the pivot report");
         }
     });
 
-    server.registerTool("create_query_table",
+    server.registerTool("createQueryTable",
     {
         description: "Create a query table in the specified workspace with the given name and SQL query",
         inputSchema: {
-        workspace_id: z.string().describe("The ID of the workspace in which to create the query table"),
-        table_name: z.string().describe("The name of the query table to create"),
+        workspaceId: z.string().describe("The ID of the workspace in which to create the query table"),
+        tableName: z.string().describe("The name of the query table to create"),
         query: z.string().describe("The SQL select query to create the query table"),
-        org_id: z.string().optional().describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided.")
+        orgId: z.string().optional().describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided.")
         },
         annotations: {
           title: "Create Query Table",
@@ -603,24 +564,24 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspace_id, table_name, query, org_id }) => {
+    async ({ workspaceId, tableName, query, orgId }) => {
         try {
-            if (!org_id) {
-                org_id = config.ORGID || "";
+            if (!orgId) {
+                orgId = config.ORGID || "";
             }
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async(org_id, workspace, table, sql) => {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async(org_id, workspace, table, sql) => {
                 const analyticsClient = getAnalyticsClient();
                 const workspaceInst = analyticsClient.getWorkspaceInstance(org_id, workspace);
                 const configParam = {};
                 const tableId = await workspaceInst.createQueryTable(sql, table, configParam);
                 return ToolResponse(`Query table '${table}' created successfully. Table Id: ${tableId}`);
-            }, workspace_id, table_name, query);            
+            }, workspaceId, tableName, query);            
         } catch (err) {
             return logAndReturnError(err, "An error occurred while creating the query table");
         }
     });
 
-    server.registerTool("delete_view",
+    server.registerTool("deleteView",
     {
       description: `
       <use_case>
@@ -628,9 +589,9 @@ export function registerModellingTools(server: ServerInstance) {
       </use_case>
       `,
       inputSchema: {
-        workspace_id: z.string(),
-        view_id: z.string(),
-        org_id: z.string().nullable().optional(),
+        workspaceId: z.string(),
+        viewId: z.string(),
+        orgId: z.string().nullable().optional(),
       },
       annotations: {
         title: "Delete View",
@@ -640,17 +601,17 @@ export function registerModellingTools(server: ServerInstance) {
         openWorldHint: false
       }
     },
-    async ({ workspace_id, view_id, org_id }) => {
+    async ({ workspaceId, viewId, orgId }) => {
         try {
-            if (!org_id){
-                org_id = config.ORGID || "";
+            if (!orgId){
+                orgId = config.ORGID || "";
             }
-            return await retryWithFallback([org_id], workspace_id, "WORKSPACE", async (org_id, workspace, view) => {
+            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, view) => {
                 const analyticsClient = getAnalyticsClient();
                 const viewInstance = analyticsClient.getViewInstance(org_id || "", workspace, view);
                 await viewInstance.delete();
                 return ToolResponse(`View with ID ${view} deleted successfully from workspace ${workspace}.`);
-            }, workspace_id, view_id);
+            }, workspaceId, viewId);
         } catch (err) {
             return logAndReturnError(err, "An error occurred while deleting the view");
         }

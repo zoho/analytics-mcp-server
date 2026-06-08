@@ -1,22 +1,26 @@
 {
-  "manifest_version": "0.2",
+  "manifest_version": "0.3",
   "name": "Zoho Analytics MCP",
+  "display_name": "Zoho Analytics",
   "version": "1.0.0",
-  "description": "MCP Server for Zoho Analytics",
+  "description": "Turn natural language into data insights. Analyze BI data, visualize trends, and answer complex business questions using Zoho Analytics",
   "long_description": "The Zoho Analytics MCP Server (Beta) implements the Model Context Protocol (MCP), a standardized interface that enables AI models to interact seamlessly with applications. This middleware solution bridges the connection between AI agents and Zoho Analytics, providing powerful data analysis capabilities through a unified interface.",
   "author": {
-    "name": "Zoho Corporation"
+    "name": "Zoho Corporation",
+    "email": "support@zohoanalytics.com",
+    "url": "https://www.zoho.com/analytics/"
   },
   "icon": "icon.png",
   "homepage": "https://github.com/zoho/analytics-mcp-server",
   "documentation": "https://www.zoho.com/analytics/api/v2/zoho-analytics-mcp-server.html",
+  "support": "https://www.zoho.com/analytics/help/contact-us.html",
   "server": {
     "type": "node",
-    "entry_point": "dist/index.js",
+    "entry_point": "dist/src/index.js",
     "mcp_config": {
       "command": "node",
       "args": [
-        "${__dirname}/dist/index.js"
+        "${__dirname}/dist/src/index.js"
       ],
       "env": {
         "ANALYTICS_CLIENT_ID": "${user_config.ANALYTICS_CLIENT_ID}",
@@ -24,10 +28,13 @@
         "ANALYTICS_REFRESH_TOKEN": "${user_config.ANALYTICS_REFRESH_TOKEN}",
         "ANALYTICS_ORG_ID": "${user_config.ANALYTICS_ORG_ID}",
         "ACCOUNTS_SERVER_URL": "${user_config.ACCOUNTS_SERVER_URL}",
-        "ANALYTICS_SERVER_URL": "${user_config.ANALYTICS_SERVER_URL}"
+        "ANALYTICS_SERVER_URL": "${user_config.ANALYTICS_SERVER_URL}",
+        "ALLOWED_FILE_ROOT": "${user_config.ALLOWED_FILE_ROOT}",
+        "QUERY_DATA_RESULT_ROW_LIMITS": "${user_config.QUERY_DATA_RESULT_ROW_LIMITS}"
       }
     }
   },
+  "privacy_policies": ["https://www.zoho.com/privacy.html"],
   "compatibility": {
     "platforms": [
       "darwin",
@@ -79,6 +86,20 @@
       "title": "Zoho Analytics Server URL",
       "description": "The URL of the Zoho Analytics Server. Example: analyticsapi.zoho.com. Kindly, refer https://www.zoho.com/analytics/api/v2/api-specification.html",
       "required": true,
+      "sensitive": false
+    },
+    "ALLOWED_FILE_ROOT": {
+      "type": "string",
+      "title": "Allowed File Root Directory",
+      "description": "The absolute path to the directory that the MCP server is allowed to access when handling file operations (import/export). This is a security measure to prevent unauthorized file system access. The server will only be able to read/write files within this directory and its subdirectories.",
+      "required": true,
+      "sensitive": false
+    },
+    "QUERY_DATA_RESULT_ROW_LIMITS": {
+      "type": "number",
+      "title": "Query Data Result Row Limits",
+      "description": "The maximum number of rows that can be returned in the result when querying data from Zoho Analytics. This limit helps to prevent excessive API units consumption and ensures the agent context is not overloaded",
+      "required": false,
       "sensitive": false
     }
   },
