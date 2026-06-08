@@ -29,7 +29,8 @@
         "ANALYTICS_ORG_ID": "${user_config.ANALYTICS_ORG_ID}",
         "ACCOUNTS_SERVER_URL": "${user_config.ACCOUNTS_SERVER_URL}",
         "ANALYTICS_SERVER_URL": "${user_config.ANALYTICS_SERVER_URL}",
-        "ALLOWED_FILE_ROOT": "${user_config.ALLOWED_FILE_ROOT}"
+        "ALLOWED_FILE_ROOT": "${user_config.ALLOWED_FILE_ROOT}",
+        "QUERY_DATA_RESULT_ROW_LIMITS": "${user_config.QUERY_DATA_RESULT_ROW_LIMITS}"
       }
     }
   },
@@ -92,6 +93,13 @@
       "title": "Allowed File Root Directory",
       "description": "The absolute path to the directory that the MCP server is allowed to access when handling file operations (import/export). This is a security measure to prevent unauthorized file system access. The server will only be able to read/write files within this directory and its subdirectories.",
       "required": true,
+      "sensitive": false
+    },
+    "QUERY_DATA_RESULT_ROW_LIMITS": {
+      "type": "number",
+      "title": "Query Data Result Row Limits",
+      "description": "The maximum number of rows that can be returned in the result when querying data from Zoho Analytics. This limit helps to prevent excessive API units consumption and ensures the agent context is not overloaded",
+      "required": false,
       "sensitive": false
     }
   },
