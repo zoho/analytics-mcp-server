@@ -101,17 +101,23 @@ export function registerDataTools(server: ServerInstance) {
                         "Please set ALLOWED_FILE_ROOT to a writable directory."
                     );
                 }
-                const jobDir = path.join(allowedFileRoot, "job", jobId);
-                fs.mkdirSync(jobDir, { recursive: true });
-                const tmpFilePath = path.join(jobDir, `${jobId}.csv`);
+                const tempDir = path.join(allowedFileRoot, "job_exports");
+                if (!fs.existsSync(tempDir)) {
+                    fs.mkdirSync(tempDir, { recursive: true });
+                }
+                const tmpFilePath = path.join(tempDir, `${jobId}.csv`);
                 await bulk.exportBulkData(jobId, tmpFilePath);
 
                 let csvData: string;
                 try {
                     csvData = fs.readFileSync(tmpFilePath, 'utf8');
                 } finally {
-                    if (fs.existsSync(tmpFilePath)) {
-                        fs.unlinkSync(tmpFilePath);
+                    try {
+                        if (fs.existsSync(tmpFilePath)) {
+                            fs.unlinkSync(tmpFilePath);
+                        }
+                    } catch (cleanupErr) {
+                        console.error(`Failed to delete temp file ${tmpFilePath}:`, cleanupErr);
                     }
                 }
 
