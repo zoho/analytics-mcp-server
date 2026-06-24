@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "Zoho Analytics MCP",
   "display_name": "Zoho Analytics",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Turn natural language into data insights. Analyze BI data, visualize trends, and answer complex business questions using Zoho Analytics",
   "long_description": "The Zoho Analytics MCP Server (Beta) implements the Model Context Protocol (MCP), a standardized interface that enables AI models to interact seamlessly with applications. This middleware solution bridges the connection between AI agents and Zoho Analytics, providing powerful data analysis capabilities through a unified interface.",
   "author": {
