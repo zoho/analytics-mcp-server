@@ -5,7 +5,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const FormData = require('form-data');
 const querystring = require('querystring');
-const mcpVersionTag = "v1.0.1";
+const mcpVersionTag = "v1.0.2";
 
 
 class AnalyticsClient

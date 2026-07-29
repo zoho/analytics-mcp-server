@@ -32,7 +32,7 @@ for (const envVar of requiredEnvVars) {
 
 const server = new McpServer({
   name: "zoho-analytics",
-  version: "1.0.0"
+  version: "1.0.2"
 });
 
 registerMetaDataTools(server);
@@ -44,7 +44,7 @@ registerRowTools(server);
 const transport = new StdioServerTransport();
 (async () => {
   await server.connect(transport);
-  console.error("Zoho Analytics MCP server is running and connected to stdin/stdout::v1.0.1");
+  console.error("Zoho Analytics MCP server is running and connected to stdin/stdout::v1.0.2");
 })().catch((error) => {
   console.error("Failed to start Zoho Analytics MCP server:", error);
   process.exit(1);
