@@ -1,13 +1,13 @@
 from fastapi.responses import JSONResponse
+from src.config import Settings
+Settings.HOSTED_LOCATION = Settings.CONSTANT_REMOTE_HOSTED_LOCATION
 import src.tools # Do not remove this import, it is required to register the tools with the MCP server.
 from src.mcp_instance import mcp
 from fastapi import FastAPI, Request
 import uvicorn
-import debugpy
 from src.auth.remote_auth import authRouter
 from src.logging_util import configure_logging, get_logger
 from src.auth.remote_auth import AuthMiddleware
-from src.config import Settings
 from starlette.middleware.sessions import SessionMiddleware
 # from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +20,6 @@ from src.utils.security import MaxBodySizeMiddleware
 from fastapi.exceptions import RequestValidationError
 from src.utils.exceptions import validation_exception_handler
 
-Settings.HOSTED_LOCATION = Settings.CONSTANT_REMOTE_HOSTED_LOCATION
 
 configure_logging(
     level="INFO",              # overall minimum
@@ -38,6 +37,7 @@ configure_logging(
 
 logger = get_logger(__name__)
 # Uncomment below line to start the debugger
+# import debugpy
 # debugpy.listen(("0.0.0.0", 5678))
 
 @asynccontextmanager

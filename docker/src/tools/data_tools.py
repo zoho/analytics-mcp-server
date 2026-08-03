@@ -4,118 +4,12 @@ import os
 import json
 import urllib
 import requests
-import pandas as pd
 from src.utils.analytics.common import retry_with_fallback
 from src.utils.analytics.data import QUERY_DATA_ROW_LIMIT, import_data_implementation, export_view_implementation, query_data_implementation
 import traceback
 from fastmcp.server.dependencies import get_context
 from sql_limit_enforcer import enforce_limit
 
-@mcp.tool()
-async def analyze_file_structure(file_path: str) -> dict:
-    """
-    <use_case>
-    1. Analyzes the structure of a file (CSV or JSON) to determine its columns and data types.
-    2. This can be used to understand the structure of a file before importing it into Zoho Analytics.
-    3. If the table does not already exist and a file needs to be imported, this tool can be used to analyze the file structure and create a new table with the appropriate columns. 
-    </use_case>
-
-    <important_notes>
-    - This tool supports only local files. If the file is a remote URL, download it first using the download_file tool.
-    - The returned data types will not be the exact data types used in Zoho Analytics, but rather a general representation of the data types in Python.
-    </important_notes>
-
-    <arguments>
-        file_path (str): The path to the local file to be analyzed.
-    </arguments>
-
-    <returns>
-        A dictionary containing the column names and their respective data types.
-    </returns>
-    """
-    
-    try:
-        if not os.path.exists(file_path):
-            return file_path + " does not exist. Please provide a valid file path."
-
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-            structure = {col: str(df[col].dtype) for col in df.columns}
-            return structure
-        
-        elif file_path.endswith('.json'):
-            with open(file_path, 'r') as f:
-                json_data = json.load(f)
-            
-
-            if isinstance(json_data, list) and len(json_data) > 0:
-
-                first_object = json_data[0]
-                structure = {}
-                
-                for column, value in first_object.items():
-                    if isinstance(value, int):
-                        structure[column] = 'NUMBER'
-                    elif isinstance(value, float):
-                        structure[column] = 'DECIMAL'
-                    elif isinstance(value, bool):
-                        structure[column] = 'BOOLEAN'
-                    else:
-                        structure[column] = 'TEXT'
-                
-                return structure
-            else:
-                return "Invalid JSON format. Expected a list of objects."
-        
-        else:
-            return "Unsupported file type. Please provide a CSV or JSON file."
-    
-    except Exception as e:
-        ctx = get_context()
-        await ctx.error(traceback.format_exc())
-        return f"An error occurred while analyzing the file structure: {e}"
-
-@mcp.tool()
-async def download_file(file_url: str) -> str:
-    """
-    <use_case>
-    1. Downloads a file from a given URL and saves it to a local directory.
-    2. This can be used to download files that need to be imported into Zoho Analytics.
-    </use_case>
-
-    <arguments>
-        file_url (str): The URL of the file to be downloaded.
-    </arguments>
-
-    <returns>
-        A string indicating the path where the file has been saved locally.
-    </returns>
-    """
-
-    try:
-
-        download_dir = Settings.MCP_DATA_DIR
-        os.makedirs(download_dir, exist_ok=True)
-
-        filename = os.path.basename(urllib.parse.urlparse(file_url).path)
-        file_type = file_url.split('.')[-1].lower()
-        if not filename:
-            filename = f"downloaded_file.{file_type}"
-
-        downloaded_path = os.path.join(download_dir, filename)
-        response = requests.get(file_url, stream=True)
-        response.raise_for_status()
-
-        with open(downloaded_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-        return f"File downloaded successfully and saved to {downloaded_path}"
-    
-    except Exception as e:
-        ctx = get_context()
-        await ctx.error(traceback.format_exc())
-        return "Failed to download the file. Please check the URL and try again. Please make sure the file is accessible and the URL is correct."
 
 @mcp.tool()
 async def import_data(workspace_id: str, table_id: str, data: list[dict] | None = None, file_path: str | None = None, file_type: str | None = None, org_id: str | None = None) -> str:
@@ -129,7 +23,7 @@ async def import_data(workspace_id: str, table_id: str, data: list[dict] | None 
     - Make sure the the table already exists in the workspace before importing data.
     - If no table exists, create a table first using the create_table tool before importing the data.
     - if the file_path is a remote URL, download the file using download_file tool before using this tool.
-    - if the file_path is a remote URL and table does not exist, you can create a new table using the create_table tool, analyse the structure (column structure of the table) of the file using analyse_file_structure tool and then import the data.
+    - if the file_path is a remote URL and table does not exist, you can create a new table using the create_table tool, analyse the structure of the file first, then create the table and  import the data.
     </important_notes>
 
 
@@ -268,7 +162,5 @@ async def query_data(workspace_id: str, sql_query: str, org_id: str | None = Non
     
 
 if Settings.HOSTED_LOCATION == Settings.CONSTANT_REMOTE_HOSTED_LOCATION:
-    analyze_file_structure.disable()
-    download_file.disable()
     import_data.disable()
     export_view.disable()
