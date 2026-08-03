@@ -1,4 +1,5 @@
 from fastapi.responses import JSONResponse
+from src.config import Settings
 Settings.HOSTED_LOCATION = Settings.CONSTANT_REMOTE_HOSTED_LOCATION
 import src.tools # Do not remove this import, it is required to register the tools with the MCP server.
 from src.mcp_instance import mcp
@@ -7,7 +8,6 @@ import uvicorn
 from src.auth.remote_auth import authRouter
 from src.logging_util import configure_logging, get_logger
 from src.auth.remote_auth import AuthMiddleware
-from src.config import Settings
 from starlette.middleware.sessions import SessionMiddleware
 # from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
