@@ -177,7 +177,7 @@ or simply add the <mcp-server-url> in the corresponding location the MCP host re
     </tr>
     <tr>
       <td>MCP_SERVER_ORG_IDS</td>
-      <td>Comma-separated list of Zoho Analytics org IDs whose users are allowed to use the Remote MCP server</td>
+      <td>Comma-separated list of Zoho Analytics org IDs whose users are allowed to use the Remote MCP server. This setting controls server admission only. Once authenticated, users can access any Zoho Analytics organization they are already authorized to access through their account.</td>
     </tr>
     <tr>
       <td>STORAGE_BACKEND</td>
@@ -394,16 +394,6 @@ The Zoho Analytics MCP server provides various tools for interacting with Zoho A
       <td>delete_view</td>
       <td>Delete View</td>
       <td>Deletes a view (table, report, or dashboard) from a workspace.</td>
-    </tr>
-    <tr>
-      <td>analyse_file_structure</td>
-      <td>Not Applicable</td>
-      <td>Analyzes the structure of a CSV or JSON file to determine its columns and data types.</td>
-    </tr>
-    <tr>
-      <td>download_file</td>
-      <td>Not Applicable</td>
-      <td>Downloads a file from a given URL and saves it to a local directory.</td>
     </tr>
   </tbody>
 </table>

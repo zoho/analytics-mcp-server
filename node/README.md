@@ -177,16 +177,6 @@ The Zoho Analytics MCP server provides various tools for interacting with Zoho A
       <td>Delete View</td>
       <td>Deletes a view (table, report, or dashboard) from a workspace.</td>
     </tr>
-    <tr>
-      <td>analyse_file_structure</td>
-      <td>Not Applicable</td>
-      <td>Analyzes the structure of a CSV or JSON file to determine its columns and data types.</td>
-    </tr>
-    <tr>
-      <td>download_file</td>
-      <td>Not Applicable</td>
-      <td>Downloads a file from a given URL and saves it to a local directory.</td>
-    </tr>
   </tbody>
 </table>
 

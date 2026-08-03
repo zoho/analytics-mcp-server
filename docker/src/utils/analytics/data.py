@@ -87,9 +87,25 @@ async def import_data_implementation(org_id, workspace_id, file_path, table_id, 
     if file_path:
         if file_path.startswith("https"):
             return "File path cannot be a remote URL. Please download the file using the download_file tool and provide the local file path."
-        file_exists = await asyncio.to_thread(os.path.exists, file_path)
+        
+
+        mcp_data_dir = getattr(Settings, "MCP_DATA_DIR", None)
+        if not mcp_data_dir:
+            return "MCP_DATA_DIR is not configured. It is required for the importData tool to work properly. Please set MCP_DATA_DIR to the directory from which file imports are permitted."
+
+        normalized_root = os.path.realpath(mcp_data_dir)
+        tentative_path = os.path.realpath(file_path)
+        if tentative_path == normalized_root or tentative_path.startswith(normalized_root + os.sep):
+            resolved_file_path = tentative_path
+        else:
+            resolved_file_path = os.path.realpath(os.path.join(normalized_root, file_path))
+            if resolved_file_path != normalized_root and not resolved_file_path.startswith(normalized_root + os.sep):
+                return f"The provided file path resolves outside the allowed MCP_DATA_DIR directory ({normalized_root}). Please provide a file path that is within the allowed root."
+
+        
+        file_exists = await asyncio.to_thread(os.path.exists, resolved_file_path)
         if not file_exists:
-            return f"File {file_path} does not exist. Please provide a valid local file path."
+            return f"File {resolved_file_path} does not exist. Please provide a valid local file path."
         if file_type not in ["csv", "json"]:
             return "Invalid file type. Please provide 'csv' or 'json'."
         result = await asyncio.to_thread(
@@ -98,7 +114,7 @@ async def import_data_implementation(org_id, workspace_id, file_path, table_id, 
             "append", 
             file_type, 
             "true", 
-            file_path, 
+            resolved_file_path, 
             config={"delimiter":'0'}
         )
         return result
@@ -119,6 +135,18 @@ async def import_data_implementation(org_id, workspace_id, file_path, table_id, 
 async def export_view_implementation(org_id, response_file_format, response_file_path, workspace_id, view_id):
     if response_file_format not in ["csv", "json", "xml", "xls", "pdf", "html", "image"]:
         return "Invalid response file format. Supported formats are ['csv', 'json', 'xml', 'xls', 'pdf', 'html', 'image']."
+
+
+    mcp_data_dir = getattr(Settings, "MCP_DATA_DIR", None)
+    if not mcp_data_dir:
+        return "MCP_DATA_DIR is not configured. It is required for the exportView tool to work properly. Please set MCP_DATA_DIR to a writable directory."
+
+    normalized_root = os.path.realpath(mcp_data_dir)
+    resolved_file_path = os.path.realpath(response_file_path)
+    if resolved_file_path != normalized_root and not resolved_file_path.startswith(normalized_root + os.sep):
+        return f"The provided file path resolves outside the allowed MCP_DATA_DIR directory ({normalized_root}). Please provide a file path that is within the allowed root."
+
+
 
     analytics_client = get_analytics_client_instance()
     bulk = analytics_client.get_bulk_instance(org_id, workspace_id)
