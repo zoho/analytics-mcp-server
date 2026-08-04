@@ -14,6 +14,12 @@ export const config: Config = {
   ORGID: process.env.ANALYTICS_ORG_ID
 };
 
+export function stripProtocol(raw: string): { clean: string; hadProtocol: boolean } {
+  const hadProtocol = /^https?:\/\//i.test(raw);
+  const clean = raw.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  return { clean, hadProtocol };
+}
+
 let analyticsClientInstance: AnalyticsClient | null = null;
 export const getAnalyticsClient = (): AnalyticsClient => {
   if (!analyticsClientInstance) {
@@ -25,12 +31,14 @@ export const getAnalyticsClient = (): AnalyticsClient => {
     const analyticsURI : string | undefined = process.env.ANALYTICS_SERVER_URL;
 
     if (accountURI && analyticsURI) {
+      const { clean: cleanAccountURI } = stripProtocol(accountURI);
+      const { clean: cleanAnalyticsURI } = stripProtocol(analyticsURI);
       analyticsClientInstance = new AnalyticsClient(
         config.CLIENTID,
         config.CLIENTSECRET,
         config.REFRESHTOKEN,
-        analyticsURI,
-        accountURI
+        cleanAnalyticsURI,
+        cleanAccountURI
       );
     } else {
       analyticsClientInstance = new AnalyticsClient(
@@ -42,3 +50,5 @@ export const getAnalyticsClient = (): AnalyticsClient => {
   }
   return analyticsClientInstance;
 };
+
+

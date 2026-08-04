@@ -65,14 +65,16 @@ export function registerDataTools(server: ServerInstance) {
             }
             try {
                 sqlQuery = enforceLimit(sqlQuery, QUERY_DATA_ROW_LIMIT);
+                console.error(`[queryData] SQL after limit enforcement: ${sqlQuery}`);
             } catch (limitErr) {
-                // If limit enforcement fails for any reason, proceed with the original query
+                console.error(`[queryData] enforceLimit failed, proceeding with original query. Reason: ${limitErr}`);
             }
             return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async(org_id, workspace, sql) => {
                 const analyticsClient = getAnalyticsClient();
                 const bulk = analyticsClient.getBulkInstance(org_id, workspace);
 
                 const jobId = await bulk.initiateBulkExportUsingSQL(sql, "CSV");
+                console.error(`[queryData] Bulk export job initiated | jobId=${jobId}`);
 
                 const statusMessages: Record<string, string> = {
                     error: "Some internal error occurred (Not likely due to the query). Please try again later.",
@@ -128,6 +130,7 @@ export function registerDataTools(server: ServerInstance) {
 
                 const columns: string[] = rows.shift() || [];
                 const limitedRows: string[][] = rows.slice(0, QUERY_DATA_ROW_LIMIT);
+                console.error(`[queryData] Parsed CSV | totalRows=${rows.length} | returnedRows=${limitedRows.length} | columns=${columns.length} | rowLimitHit=${limitedRows.length >= QUERY_DATA_ROW_LIMIT}`);
 
                 let responseMessage = `Query executed successfully. Retrieved ${limitedRows.length} rows.\n${JSON.stringify({ columns, rows: limitedRows })}`;
                 if (limitedRows.length >= QUERY_DATA_ROW_LIMIT) {
@@ -143,6 +146,7 @@ export function registerDataTools(server: ServerInstance) {
                 return ToolResponse(responseMessage);
             }, workspaceId, sqlQuery);
         } catch (err) {
+            console.error(`[queryData] Unhandled error | workspaceId=${workspaceId} | orgId=${orgId} | error=${err}`);
             return logAndReturnError(err, "An error occurred while executing the query");
         }
     });

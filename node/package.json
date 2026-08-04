@@ -1,6 +1,6 @@
 {
   "name": "zoho-analytics-mcp-server",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Mcp server implementation for Zoho Analytics",
   "bin": {
     "zoho-analytics-mcp-server": "./dist/src/index.js"
@@ -22,10 +22,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
-    "axios": "1.17.0",
     "csv-parser": "3.2.0",
     "dedent": "1.6.0",
     "dotenv": "17.0.1",
+    "form-data": "4.0.6",
     "sql-limit-enforcer": "*"
   },
   "workspaces": [
