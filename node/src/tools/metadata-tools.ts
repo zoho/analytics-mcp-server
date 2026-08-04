@@ -778,13 +778,13 @@ Strictly provide your output in the following JSON format:
 
       // ── Step 2 & 3: DNS checks ─────────────────────────────────────────────
       if (accountsRaw) {
-        allResults.push(...await checkDns(accountsRaw, 'ACCOUNTS_SERVER_URL'));
+        allResults.push(...await checkDns(accountsHost, 'ACCOUNTS_SERVER_URL'));
       } else {
         allResults.push(makeResult('dns:ACCOUNTS_SERVER_URL', 'SKIP', 'ACCOUNTS_SERVER_URL not set; skipping DNS check.'));
       }
 
       if (analyticsRaw) {
-        allResults.push(...await checkDns(analyticsRaw, 'ANALYTICS_SERVER_URL'));
+        allResults.push(...await checkDns(analyticsHost, 'ANALYTICS_SERVER_URL'));
       } else {
         allResults.push(makeResult('dns:ANALYTICS_SERVER_URL', 'SKIP', 'ANALYTICS_SERVER_URL not set; skipping DNS check.'));
       }
