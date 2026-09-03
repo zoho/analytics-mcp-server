@@ -31,6 +31,7 @@ export function registerDataTools(server: ServerInstance) {
         - If table or column names contain spaces or special characters, enclose them in double quotes (e.g., "Column Name").
         - Do not use more than one level of nested sub-queries.
         - Combine multiple lookups into a single query using JOINs, UNIONs, or sub-queries where possible, while keeping the query efficient and optimized.
+        - Before writing expressions for business metrics (e.g., revenue, churn, conversion rate), call listAggregateFormulas to check whether the user has pre-defined aggregate formulas for those terms. If matching formulas exist, use their expressions directly in the SQL query rather than rewriting the logic - this ensures consistency and avoids calculation errors.
 
         Pagination Strategy:
         Since only the top N rows are returned, when absolutely necessary, use LIMIT + OFFSET to walk through data:
@@ -240,14 +241,55 @@ export function registerDataTools(server: ServerInstance) {
                     await bulk.exportData(view, response_format, fullPath);
                 } catch (e: any) {
                     if (e?.errorCode === 8133) {
+                        // errorCode=8133 indicates synchronous export is blocked.
+                        // This can happen for:
+                        // - Tables with > 1M rows
+                        // - Dashboards / Querytable view types
+                        // In these cases, fall back to bulk export.
 
-                        if (response_format !== "pdf") {
+                        const viewType = (viewDetails?.viewType || "").toLowerCase();
+
+                        // For dashboards, bulk export only supports PDF. Ignore any provided format and default to pdf.
+                        if (viewType === "dashboard") {
+                            const jobId = await bulk.initiateBulkExport(view, "pdf", { dashboardLayout: 1 });
+                            const statusMessages: Record<string, string> = {
+                                error: "Some internal error ocurred. Please try again later.",
+                                queue_timeout: "Dashboard export Job accepted, but queue processing is slow. Please try again later.",
+                                execution_timeout: "Dashboard is taking too long to export, maybe due to the complexity. Please try again later."
+                            };
+                            const errorMessage = await pollJobCompletion(bulk, jobId, statusMessages);
+                            if (errorMessage) {
+                                return ToolResponse(errorMessage);
+                            }
+
+                            await bulk.exportBulkData(jobId, fullPath);
                             return ToolResponse(
-                                `Exporting view ${view} in ${response_format} format is not supported. Please use 'pdf' format for dashboards.`
+                                `Object exported successfully to ${fullPath} in pdf format.`
                             );
                         }
 
-                        const jobId = await bulk.initiateBulkExport(view, "pdf", { dashboardLayout: 1 });
+                        // For tables, do NOT enforce pdf. Use the caller-provided response_format.
+                        if (viewType === "table") {
+                            const jobId = await bulk.initiateBulkExport(view, response_format);
+                            const statusMessages: Record<string, string> = {
+                                error: "Some internal error ocurred. Please try again later.",
+                                queue_timeout: "Table export job accepted, but queue processing is slow. Please try again later.",
+                                execution_timeout: "Table is taking too long to export. Please try again later."
+                            };
+                            const errorMessage = await pollJobCompletion(bulk, jobId, statusMessages);
+                            if (errorMessage) {
+                                return ToolResponse(errorMessage);
+                            }
+
+                            await bulk.exportBulkData(jobId, fullPath);
+                            return ToolResponse(
+                                `Object exported successfully to ${fullPath} in ${response_format} format.`
+                            );
+                        }
+
+                        // For other view types (Chart/QueryTable/etc.), keep existing behavior: try bulk export with
+                        // the requested format (if supported). If this fails, surface the error.
+                        const jobId = await bulk.initiateBulkExport(view, response_format);
                         const statusMessages: Record<string, string> = {
                             error: "Some internal error ocurred. Please try again later.",
                             queue_timeout: "Dashboard export Job accepted, but queue processing is slow. Please try again later.",
@@ -287,7 +329,7 @@ export function registerDataTools(server: ServerInstance) {
         - The target table must already exist. If it doesn't, use \`createTable\` first.
         - Before creating a table, inspect the source data (file or inline) to determine
           the correct column names and data types.
-        - If \`filePath\` points to a remote URL, download the file locally before using this tool.
+        - To import data from a remote url, download the file locally first and then provide the local file path via \`filePath\`.
 
         BEHAVIOR:
         - If both \`data\` and \`filePath\` are provided, \`filePath\` takes precedence.
@@ -305,9 +347,7 @@ export function registerDataTools(server: ServerInstance) {
             filePath: z.string().optional().describe("Absolute path to a local file (CSV or JSON) containing the data to import. " +
                 "Remote URLs are not supported - download the file first if needed."),
             fileType: z.enum(["csv", "json"]).optional().describe("Format of the file specified in filePath. " +
-            "Required when filePath is provided. Accepted values: \"csv\" or \"json\"."),
-            orgId: z.string().optional().describe("Organization ID associated with the workspace. " +
-                "Required for shared workspaces. Falls back to the configured default if omitted.")
+            "Required when filePath is provided. Accepted values: \"csv\" or \"json\".")
         },
         annotations: {
           title: "Import Data",
@@ -317,12 +357,10 @@ export function registerDataTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspaceId, tableId, data, filePath, fileType, orgId }) => {
+    async ({ workspaceId, tableId, data, filePath, fileType }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
 
+            const orgId = config.ORGID || "";
             let resolvedFilePath = filePath;
             if (filePath) {
                 const allowedFileRoot = process.env.ALLOWED_FILE_ROOT;
@@ -362,8 +400,24 @@ export function registerDataTools(server: ServerInstance) {
                     if (!type || (type !== "csv" && type !== "json")) {
                         return ToolResponse("File type must be specified as 'csv' or 'json'.");
                     }
-                    const result = await bulk.importData(table, "append", type, "true", filePath, { delimiter: '0' });
-                    return ToolResponse(JSON.stringify(result));
+
+                    // Prefer synchronous import for smaller files, but fall back to bulk import for larger files.
+                    // Zoho Analytics synchronous import API has a ~20MB limit; when exceeded it can throw errorCode=8513.
+                    try {
+                        const result = await bulk.importData(table, "append", type, "true", filePath, { delimiter: '0' });
+                        return ToolResponse(JSON.stringify(result));
+                    } catch (e: any) {
+                        const errorCode = e?.errorCode ?? e?.code;
+                        if (String(errorCode) === "8513") {
+                            console.error(`[importData] Received errorCode=8513 (likely file too large for synchronous import). Falling back to bulk.importBulkData(). | workspaceId=${workspace} | tableId=${table}`);
+                            const jobId = await bulk.importBulkData(table, "append", type, "true", filePath, { delimiter: '0' });
+                            return ToolResponse(JSON.stringify({
+                                message: "The file is large. Asynchronous import job submitted, the import will happen in the background.",
+                                jobId
+                            }));
+                        }
+                        throw e;
+                    }
                 }
                 if (!input) {
                     return ToolResponse("No data provided to import. Please provide either 'data' or 'filePath'.");

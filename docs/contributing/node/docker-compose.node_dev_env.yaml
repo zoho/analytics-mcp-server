@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  node-dev:
+    image: node:24  # You can change the version as needed
+    container_name: analytics-mcp-node-dev
+    network_mode: host
+    working_dir: /app
+    volumes:
+      - ../../../node:/app  # Mounts the node/ directory into /app in the container
+    env_file:
+      - .env  # Loads environment variables from .env file
+    stdin_open: true   # Keeps stdin open for interactive sessions
+    tty: true          # Allocates a pseudo-TTY
+    command: tail -f /dev/null  # Keeps the container running
