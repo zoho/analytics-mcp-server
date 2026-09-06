@@ -5,3 +5,4 @@
 .mcpbignore
 docker-compose.dev.yaml
 docker-compose.*.dev.yaml
+launch.json

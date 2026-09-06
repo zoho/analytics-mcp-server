@@ -23,28 +23,33 @@ export function stripProtocol(raw: string): { clean: string; hadProtocol: boolea
 let analyticsClientInstance: AnalyticsClient | null = null;
 export const getAnalyticsClient = (): AnalyticsClient => {
   if (!analyticsClientInstance) {
-    if (!config.CLIENTID || !config.CLIENTSECRET || !config.REFRESHTOKEN) {
+
+    const clientId     = config.CLIENTID?.trim();
+    const clientSecret = config.CLIENTSECRET?.trim();
+    const refreshToken = config.REFRESHTOKEN?.trim();
+
+    if (!clientId || !clientSecret || !refreshToken) {
       throw new Error('Missing required environment variables for AnalyticsClient');
     }
 
-    const accountURI : string | undefined = process.env.ACCOUNTS_SERVER_URL;
-    const analyticsURI : string | undefined = process.env.ANALYTICS_SERVER_URL;
+    const accountURI  = process.env.ACCOUNTS_SERVER_URL?.trim();
+    const analyticsURI = process.env.ANALYTICS_SERVER_URL?.trim();
 
     if (accountURI && analyticsURI) {
       const { clean: cleanAccountURI } = stripProtocol(accountURI);
       const { clean: cleanAnalyticsURI } = stripProtocol(analyticsURI);
       analyticsClientInstance = new AnalyticsClient(
-        config.CLIENTID,
-        config.CLIENTSECRET,
-        config.REFRESHTOKEN,
+        clientId,
+        clientSecret,
+        refreshToken,
         cleanAnalyticsURI,
         cleanAccountURI
       );
     } else {
       analyticsClientInstance = new AnalyticsClient(
-        config.CLIENTID,
-        config.CLIENTSECRET,
-        config.REFRESHTOKEN
+        clientId,
+        clientSecret,
+        refreshToken
       );
     }
   }

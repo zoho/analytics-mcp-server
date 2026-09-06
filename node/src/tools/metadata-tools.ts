@@ -13,7 +13,6 @@ import * as tls from 'tls';
 const dnsLookup = promisify(dns.lookup);
 const dnsResolve = promisify(dns.resolve);
 
-
 function httpsGet(hostname: string, path = '/'): Promise<number> {
   return new Promise((resolve, reject) => {
     const req = https.request(
@@ -244,6 +243,14 @@ async function checkEnvVars(): Promise<CheckResult[]> {
       continue;
     }
 
+    if (v.value !== v.value.trim()) {
+      results.push(makeResult(
+        `env:${v.key}`, 'FAIL',
+        `${v.key} has leading or trailing whitespace. Suggested fix: "${v.value.trim()}"`
+      ));
+      continue;
+    }
+
     const { hadProtocol, clean } = stripProtocol(v.value);
 
     // URL vars should be bare hostnames - flag if they contain a protocol
@@ -428,6 +435,101 @@ function filterValidNumbers(input: number[], validNumbers: number[]): number[] {
 }
 
 export function registerMetaDataTools(server: ServerInstance) {
+
+  server.registerTool("listAggregateFormulas",
+  {
+    description: `
+    Use Case:
+    1) Fetches the list of aggregate formulas in a workspace or a specific view/table.
+    2) Use this to discover existing aggregate formulas and their expressions before creating new ones or referencing them in reports.
+
+    Important Notes:
+    1) If viewId is provided, fetches aggregate formulas for that specific view/table only.
+    2) If viewId is not provided, fetches aggregate formulas for the entire workspace.
+    3) If formulaNameContainsStr is provided, only formulas whose names contain that string (case-insensitive) are returned.
+
+    Returns:
+    A JSON array of aggregate formula objects. Each object contains:
+    - formulaId: The unique identifier of the aggregate formula.
+    - formulaName: The name of the aggregate formula.
+    - expression: The SQL aggregate expression of the formula.
+    - description: A description of the aggregate formula (if available).
+    - subType: The data sub-type of the formula result (e.g. DECIMAL_NUMBER).
+    - tableName: The name of the table the formula belongs to.
+    `,
+    inputSchema: {
+      workspaceId: z.string().describe("The ID of the workspace"),
+      viewId: z.string().optional().describe("Optional. The ID of the view/table. If provided, fetches aggregate formulas for that specific view. If not provided, fetches for the entire workspace."),
+      formulaNameContainsStr: z.string().optional().describe("Optional. If provided, filters and returns only those formulas whose names contain this string (case-insensitive)."),
+      orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
+    },
+    annotations: {
+      title: "List Aggregate Formulas",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  async ({ workspaceId, viewId, formulaNameContainsStr, orgId }) => {
+    try {
+      if (!orgId) {
+        orgId = config.ORGID || "";
+      }
+
+      return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace) => {
+        const ac = getAnalyticsClient();
+        let formulas: any[];
+
+        if (viewId) {
+          // Fetch aggregate formulas for a specific view/table
+          console.error(`[listAggregateFormulas] Fetching aggregate formulas for view '${viewId}' in workspace '${workspace}'`);
+          const viewInst = ac.getViewInstance(org_id, workspace, viewId);
+          formulas = await viewInst.getAggregateFormulas();
+        } else {
+          // Fetch aggregate formulas for the entire workspace
+          console.error(`[listAggregateFormulas] Fetching aggregate formulas for workspace '${workspace}'`);
+          const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
+          formulas = await workspaceInst.getAggregateFormulas();
+        }
+
+        if (!formulas || formulas.length === 0) {
+          console.error(`[listAggregateFormulas] No aggregate formulas found`);
+          return ToolResponse("No aggregate formulas found.");
+        }
+
+        console.error(`[listAggregateFormulas] Retrieved ${formulas.length} aggregate formula(s) before filtering`);
+
+        // Apply name filter if provided
+        if (formulaNameContainsStr && formulaNameContainsStr.trim() !== "") {
+          const filterStr = formulaNameContainsStr.toLowerCase();
+          formulas = formulas.filter((f: any) =>
+            f.formulaName && f.formulaName.toLowerCase().includes(filterStr)
+          );
+          console.error(`[listAggregateFormulas] ${formulas.length} formula(s) matched filter '${formulaNameContainsStr}'`);
+        }
+
+        if (formulas.length === 0) {
+          return ToolResponse(`No aggregate formulas found matching '${formulaNameContainsStr}'.`);
+        }
+
+        // Return only the relevant fields
+        const result = formulas.map((f: any) => ({
+          formulaId: f.formulaId,
+          formulaName: f.formulaName,
+          expression: f.expression,
+          description: f.description ?? "",
+          subType: f.subType,
+          tableName: f.tableName,
+        }));
+
+        return ToolResponse(JSON.stringify(result));
+      }, workspaceId);
+    } catch (err) {
+      return logAndReturnError(err, "An error occurred while fetching aggregate formulas");
+    }
+  });
+
 
   server.registerTool("getWorkspacesList",
     {

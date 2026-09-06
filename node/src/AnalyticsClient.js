@@ -5,7 +5,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const FormData = require('form-data');
 const querystring = require('querystring');
-const mcpVersionTag = "v1.0.2";
+const mcpVersionTag = "v1.0.3";
 
 
 class AnalyticsClient
@@ -2467,6 +2467,23 @@ class ViewAPI
         var uriPath = this.uriPath + "/columns/" + columnId + "/lookup";
         config.referenceViewId = refViewId;
         config.referenceColumnId = refColumnId;
+        await this.ac.handleV2Request(uriPath, "POST", config, this.header);
+    }
+
+    /**
+     * Add lookup to the specified column in the table (V2 - supports multiple references and relation types).
+     * @method addLookupV2
+     * @param {String} columnId - Id of the column.
+     * @param {Array} references - Array of reference objects. Each object should have:
+     *   - viewId: ID of the view to which the lookup relationship is being established
+     *   - columnId: ID of the column in the referenced view
+     *   - relationType: Type of relationship ("ONE_TO_ONE", "ONE_TO_MANY", "MANY_TO_MANY", "MANY_TO_ONE")
+     * @param {Object} config={} - Contains any additional control attributes.
+     * @throws {Error} If the request failed due to some error.
+     */
+    async addLookupV2(columnId, references, config={}) {
+        var uriPath = this.uriPath + "/columns/" + columnId + "/lookup";
+        config.references = references;
         await this.ac.handleV2Request(uriPath, "POST", config, this.header);
     }
 
