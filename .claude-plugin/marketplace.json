@@ -1,0 +1,39 @@
+{
+  "name": "zoho-analytics-marketplace",
+  "owner": {
+    "name": "Zoho Corporation",
+    "email": "support@zoho.com"
+  },
+  "metadata": {
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "zoho-analytics-plugin",
+      "source": "./",
+      "description": "A collection of zoho analytics skills and a MCP server that provides seamless analytics capabilities to agents",
+      "version": "1.0.0",
+      "author": {
+        "name": "Zoho Corporation"
+      },
+      "homepage": "https://docs.example.com/plugin",
+      "repository": "https://github.com/zoho/analytics-mcp-server/",
+      "license": "MIT",
+      "keywords": [
+        "zoho-analytics",
+        "analytics",
+        "data-visualization",
+        "BI",
+        "zoho"
+      ],
+      "category": "integrations",
+      "tags": [
+        "zoho",
+        "analytics",
+        "data-visualization",
+        "BI",
+        "mcp"
+      ]
+    }
+  ]
+}

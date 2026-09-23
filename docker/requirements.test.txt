@@ -1,4 +1,0 @@
-pytest
-pytest-asyncio
-requests
-debugpy==1.8.17

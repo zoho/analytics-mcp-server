@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "Zoho-Analytics": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y","zoho-analytics-mcp-server@plugin-v1.0.0"
+        ],
+        "env": {
+            "ANALYTICS_CLIENT_ID": "${user_config.ANALYTICS_CLIENT_ID}",
+            "ANALYTICS_CLIENT_SECRET": "${user_config.ANALYTICS_CLIENT_SECRET}",
+            "ANALYTICS_REFRESH_TOKEN": "${user_config.ANALYTICS_REFRESH_TOKEN}",
+            "ANALYTICS_ORG_ID": "${user_config.ANALYTICS_ORG_ID}",
+            "ACCOUNTS_SERVER_URL": "${user_config.ACCOUNTS_SERVER_URL}",
+            "ANALYTICS_SERVER_URL": "${user_config.ANALYTICS_SERVER_URL}",
+            "ALLOWED_FILE_ROOT": "${user_config.ALLOWED_FILE_ROOT}",
+            "QUERY_DATA_RESULT_ROW_LIMITS": "${user_config.QUERY_DATA_RESULT_ROW_LIMITS}",
+            "CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"
+        }
+    }
+  }
+}

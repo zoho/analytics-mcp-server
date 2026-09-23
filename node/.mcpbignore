@@ -1,8 +1,0 @@
-.env
-/src/
-/packages/
-*.mcpb
-.mcpbignore
-docker-compose.dev.yaml
-docker-compose.*.dev.yaml
-launch.json
