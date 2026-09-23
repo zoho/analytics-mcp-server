@@ -467,6 +467,23 @@ declare module './AnalyticsClient' {
         createReport(config?: Config): Promise<JSONArray>;
 
         /**
+         * Returns the metadata of the specified report.
+         * @param {string} reportId - Id of the report.
+         * @returns {Promise<Object>} Report metadata.
+         * @throws {Error} If the request failed due to some error.
+         */
+        getReportMetadata(reportId: string): Promise<Object>;
+
+        /**
+         * Update the design and configuration of the specified report.
+         * @param {string} viewId - Id of the view (report) to update.
+         * @param {Config} [config] - Contains the control attributes (report configuration).
+         * @returns {Promise<void>}
+         * @throws {Error} If the request failed due to some error.
+         */
+        updateReport(viewId: string, config?: Config): Promise<void>;
+
+        /**
          * Create a new dashboard in the specified workspace.
          * @param {string} displayName - Display name of the dashboard (unique within workspace, max 200 chars).
          * @param {object} layout - Dashboard layout object keyed by string card IDs. Each card must include type, width, height, left, top. VIEW cards also need viewName and properties. HTML/TITLE/IMAGE/EMBED cards need content.
@@ -537,6 +554,56 @@ declare module './AnalyticsClient' {
          * @throws {Error} If the request failed due to some error.
          */
         delete(config?: Config): Promise<void>;
+
+                /**
+         * Add a lookup in the specified child table.
+         * @param {string} columnId - Id of the column.
+         * @param {string} refViewId - The id of the table contains the parent column.
+         * @param {string} refColumnId - The id of the parent column.
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<void>}
+         * @throws {Error} If the request failed due to some error.
+         */
+        addLookup(columnId: string, refViewId: string, refColumnId: string, config?: Config): Promise<void>;
+
+        /**
+         * Add lookup to the specified column in the table (V2 - supports multiple references and relation types).
+         * @param {string} columnId - Id of the column.
+         * @param {Array} references - Array of reference objects. Each object should have:
+         *   - viewId: ID of the view to which the lookup relationship is being established
+         *   - columnId: ID of the column in the referenced view
+         *   - relationType: Type of relationship ("ONE_TO_ONE", "ONE_TO_MANY", "MANY_TO_MANY", "MANY_TO_ONE")
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<void>}
+         * @throws {Error} If the request failed due to some error.
+         */
+        addLookupV2(columnId: string, references: Array<{viewId: string, columnId: string, relationType: string}>, config?: Config): Promise<void>;
+
+        /**
+         * Remove the lookup for the specified column in the table.
+         * @param {string} columnId - Id of the column.
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<void>}
+         * @throws {Error} If the request failed due to some error.
+         */
+        removeLookup(columnId: string, config?: Config): Promise<void>;
+
+        /**
+         * Returns list of all aggregate formulas for the specified table/view.
+         * @returns {Promise<JSONArray>} Aggregate formula list.
+         * @throws {Error} If the request failed due to some error.
+         */
+        getAggregateFormulas(): Promise<JSONArray>;
+
+        /**
+         * Add an aggregate formula in the specified table/view.
+         * @param {string} formulaName - Name of the aggregate formula to be created.
+         * @param {string} expression - Formula expression (e.g. SUM("Revenue")).
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<string>} Created formula id.
+         * @throws {Error} If the request failed due to some error.
+         */
+        addAggregateFormula(formulaName: string, expression: string, config?: Config): Promise<string>;
 
 
         addRow(columnValues, config?: Config): Promise<void>;

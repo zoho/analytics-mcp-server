@@ -2,7 +2,7 @@
 
 Creates or updates a summary view — a grouped aggregate report with group-by and aggregate logic — on top of a table or query table, via `createReport` (with `reportType: "summary"` and `summaryConfig`) or `updateReport`.
 
-For `updateReport` usage, see [Read & Update Reports](./reports_read_update.md). This file documents the `summaryConfig` shape and valid values applicable to both tools.
+For `updateReport` usage, see [Reports Management](./reports_management.md). This file documents the `summaryConfig` shape and valid values applicable to both tools.
 
 ## Create Summary
 

@@ -2,7 +2,7 @@
 
 Filters restrict the underlying data before a report is computed. The `filters` argument is optional on both `createReport` and `updateReport` calls — all report types (chart, summary, pivot) share this exact same filter structure.
 
-> **Important for `updateReport`:** The update is a **full replacement**. If you omit `filters` in an `updateReport` call, all existing filters are cleared. Always re-submit existing filters you wish to keep (read them first via `readReportMetadata` — see [Read & Update Reports](./reports_read_update.md)).
+> **Important for `updateReport`:** The update is a **full replacement**. If you omit `filters` in an `updateReport` call, all existing filters are cleared. Always re-submit existing filters you wish to keep (read them first via `readReportMetadata` — see [Reports Management](./reports_management.md)).
 
 ## Filter object structure
 

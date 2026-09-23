@@ -2,14 +2,16 @@
 
 Aggregate formulas are reusable named expressions that return a **single aggregated value** across rows of a table (e.g. `SUM("Revenue")`, `COUNT("OrderID")`, `AVG("Salary")`). They act like measures — you define them once on a table and they become available for use in reports built on that table.
 
-> **Not sure which formula type to use?** See [data_modelling_formulas.md](./data_modelling_formulas.md) for a comparison with custom formula columns.
-
 **Expression rules:**
 - Enclose column/table names in **double quotes**: `"Revenue"`, `"Orders"."Amount"`
 - Enclose literal string values in **single quotes**: `'Active'`
 - Expressions are **MySQL-compatible**
 - The expression **must always return a single aggregate value** — do not write a row-level expression here
-- Multi-table aggregate formulas (referencing lookup-related tables) must use fully qualified names: `"TableName"."ColumnName"`. These should be created on the **child table**.
+- **Single-table formulas**: Reference columns from one table only (e.g., `SUM("Amount")`)
+- **Multi-table aggregate formulas**: Reference columns from **2+ different tables** connected via lookup relationships (e.g., `SUM("Orders"."Amount" * "Customers"."Factor")`). These formulas:
+  a) Must use fully qualified names: `"TableName"."ColumnName"`
+  b) Must be created on the **childmost table** in the lookup chain (the table furthest from the parent in the relationship hierarchy)
+  c) Can traverse multiple levels of lookups (e.g., OrderItems → Orders → Customers)
 
 
 ## 1. List Aggregate Formulas
@@ -131,19 +133,43 @@ execute_analytics_tool(
 )
 ```
 
-Example — multi-table aggregate (lookup relationship must exist between tables):
+Example — multi-table aggregate across two tables (lookup relationship must exist):
 
 ```
+// Scenario: Calculate total revenue factoring in customer-specific discount
+// Tables: Customers (parent) ← Orders (child, has CustomerID lookup to Customers)
+// Formula is created on the CHILDMOST table (Orders)
+
 execute_analytics_tool(
     "addAggregateFormula",
     {
         "workspaceId": "123456789",
-        "tableId": "987654321",
-        "formulaName": "Total Sales by Customer",
-        "expression": "SUM(\"Orders\".\"Amount\")"
+        "tableId": "987654321",  // Orders table ID (childmost)
+        "formulaName": "Discounted Revenue per Customer",
+        "expression": "SUM(\"Orders\".\"Amount\" * \"Customers\".\"DiscountMultiplier\")"
     }
 )
 ```
+
+Example — multi-table aggregate across three tables (multi-level lookup chain):
+
+```
+// Scenario: Calculate weighted order value across a 3-table lookup chain
+// Tables: Customers (parent) ← Orders (child) ← OrderItems (grandchild)
+// Formula is created on the CHILDMOST table (OrderItems)
+
+execute_analytics_tool(
+    "addAggregateFormula",
+    {
+        "workspaceId": "123456789",
+        "tableId": "555555555",  // OrderItems table ID (childmost)
+        "formulaName": "Total Customer Value with Loyalty",
+        "expression": "SUM(\"OrderItems\".\"Quantity\" * \"OrderItems\".\"UnitPrice\" * \"Customers\".\"LoyaltyFactor\")"
+    }
+)
+```
+
+> **Understanding childmost table**: In a lookup chain like `Customers → Orders → OrderItems`, the childmost table is `OrderItems` because it's the target (child side) of the relationship. Aggregations roll up data from the child perspective through the entire lookup hierarchy, giving the child access to all parent table columns.
 
 Returns: A success message with the created formula's ID.
 

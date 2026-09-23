@@ -2,7 +2,7 @@
 
 Creates or updates a chart report on top of a table or query table, via `createReport` (with `reportType: "chart"` and `chartConfig`) or `updateReport`.
 
-For `updateReport` usage, see [Read & Update Reports](./reports_read_update.md). This file documents the `chartConfig` shape and valid values applicable to both tools.
+For `updateReport` usage, see [Reports Management](./reports_management.md). This file documents the `chartConfig` shape and valid values applicable to both tools.
 
 ---
 
