@@ -1,8 +1,5 @@
 # Analytics Plus On-Premise MCP Server
 
-[![NPM Version](https://img.shields.io/npm/v/zoho-analytics-mcp-server)](https://www.npmjs.com/package/zoho-analytics-mcp-server)
-[![NPM Downloads](https://img.shields.io/npm/dm/zoho-analytics-mcp-server)](https://www.npmjs.com/package/zoho-analytics-mcp-server)
-
 A Node.js implementation of the Analytics Plus On-Premise Model Context Protocol (MCP) Server that provides seamless integration between Analytics Plus On-Premise and MCP Hosts such as VS Code, Claude Desktop, Cursor, and more.
 
 ## Overview
@@ -30,25 +27,25 @@ Before using the Analytics Plus On-Premise MCP Server, ensure you have:
 The easiest way to use the Analytics Plus On-Premise MCP Server is through NPX (no installation required):
 
 ```bash
-npx zoho-analytics-mcp-server@latest
+npx analytics-plus-on-premise-mcp-server@latest
 ```
 
 Alternatively, you can install it globally:
 
 ```bash
-npm install -g zoho-analytics-mcp-server
+npm install -g analytics-plus-on-premise-mcp-server
 ```
 
 ### Authentication Setup
 
 To use the Analytics Plus On-Premise MCP Server, you need OAuth credentials from Zoho. Follow these steps:
 
-1. **Go to the [Zoho Developer Console](https://api-console.zoho.com/)**
+1. **Go to the Developer Console. This is <product-url>/developerconsole
 2. **Create a new Self-Client application**
 3. **Enable the Analytics Plus On-Premise API scope**
 4. **Generate your Refresh Token**
 
-For detailed instructions, refer to the [official API Authentication Documentation](https://www.zoho.com/analytics/api/).
+For detailed instructions, refer to the [official API Authentication Documentation](https://www.manageengine.com/analytics-plus/api/v2/introduction.html).
 
 ## Configuration
 
@@ -62,7 +59,7 @@ For detailed instructions, refer to the [official API Authentication Documentati
 | `ANALYTICS_CLIENT_SECRET` | Your Analytics Plus On-Premise OAuth client secret |
 | `ANALYTICS_REFRESH_TOKEN` | Your Analytics Plus On-Premise OAuth refresh token |
 | `ANALYTICS_ORG_ID` | Your Analytics Plus On-Premise organization ID |
-| `ACCOUNTS_SERVER_URL` | Your Zoho Accounts Domain URL (typically `<your-accounts-uri>`) |
+| `ACCOUNTS_SERVER_URL` | Your ME Analytics Plus Accounts Domain URL (typically `<your-accounts-uri>`) |
 | `ANALYTICS_SERVER_URL` | Your Analytics Plus On-Premise API Domain URL (typically `<your-analytics-uri>`) |
 
 #### Optional Variables
@@ -191,10 +188,10 @@ Add the following configuration to your VS Code MCP settings file. For detailed 
 ```json
 {
   "servers": {
-    "zoho_analytics": {
+    "analytics_plus_on_premise": {
       "type": "stdio",
       "command": "npx",
-      "args": ["zoho-analytics-mcp-server@latest"],
+      "args": ["analytics-plus-on-premise-mcp-server@latest"],
       "env": {
         "ANALYTICS_CLIENT_ID": "your-client-id-here",
         "ANALYTICS_CLIENT_SECRET": "your-client-secret-here", 
@@ -215,9 +212,9 @@ For Claude Desktop, add the following to your MCP configuration file:
 ```json
 {
   "mcpServers": {
-    "zoho-analytics-mcp": {
+    "analytics-plus-on-premise-mcp": {
       "command": "npx",
-      "args": ["zoho-analytics-mcp-server@latest"],
+      "args": ["analytics-plus-on-premise-mcp-server@latest"],
       "env": {
         "ANALYTICS_CLIENT_ID": "your-client-id-here",
         "ANALYTICS_CLIENT_SECRET": "your-client-secret-here",
@@ -237,8 +234,8 @@ For Claude Desktop, add the following to your MCP configuration file:
 
 - **Authentication Errors**: Ensure your OAuth credentials are correct and have the necessary scopes
 - **Connection Timeouts**: Check your network connectivity and adjust timeout values if necessary
-- **Permission Errors**: Verify that your Zoho account has access to the specified organization and workspaces
+- **Permission Errors**: Verify that Analytics Plus account has access to the specified organization and workspaces
 
 ### Support
 
-For issues and questions, contact Zoho support for account-related issues
+For issues and questions, contact Analytics Plus support for account-related issues
