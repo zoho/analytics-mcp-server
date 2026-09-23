@@ -1,0 +1,81 @@
+{
+  "name": "zoho-analytics-plugin",
+  "displayName": "Zoho Analytics",
+  "version": "1.0.0",
+  "description": "A collection of zoho analytics skills and a MCP server that provides seamless analytics capabilities to agents",
+  "author": {
+    "name": "Zoho Corporation",
+    "email": "support@zoho.com",
+    "url": "https://www.zoho.com/analytics/"
+  },
+  "homepage": "https://docs.example.com/plugin",
+  "repository": "https://github.com/zoho/analytics-mcp-server/",
+  "license": "MIT",
+  "keywords": [
+    "zoho-analytics",
+    "analytics",
+    "data-visualization",
+    "BI",
+    "zoho"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "userConfig": {
+    "ANALYTICS_CLIENT_ID": {
+      "type": "string",
+      "title": "Client ID",
+      "description": "Client ID of the self-client that was registered in Zoho API Console.\nThe API Console can be accessed at https://api-console.zoho.com/.\nPlease use the scope 'ZohoAnalytics.fullaccess.all'",
+      "required": true,
+      "sensitive": false
+    },
+    "ANALYTICS_CLIENT_SECRET": {
+      "type": "string",
+      "title": "Client Secret",
+      "description": "Client secret of the self-client that was registered in the Zoho API Console",
+      "required": true,
+      "sensitive": true
+    },
+    "ANALYTICS_REFRESH_TOKEN": {
+      "type": "string",
+      "title": "Refresh Token",
+      "description": "Refresh Token generated for the self-client",
+      "required": true,
+      "sensitive": true
+    },
+    "ANALYTICS_ORG_ID": {
+      "type": "number",
+      "title": "Organization ID",
+      "description": "Your Zoho Analytics Organization ID",
+      "required": true,
+      "sensitive": false
+    },
+    "ACCOUNTS_SERVER_URL": {
+      "type": "string",
+      "title": "Zoho Accounts Server URL",
+      "description": "The URL of the Zoho Accounts server. Example: accounts.zoho.com. Kindly, refer https://www.zoho.com/analytics/api/v2/api-specification.html",
+      "required": true,
+      "sensitive": false
+    },
+    "ANALYTICS_SERVER_URL": {
+      "type": "string",
+      "title": "Zoho Analytics Server URL",
+      "description": "The URL of the Zoho Analytics Server. Example: analyticsapi.zoho.com. Kindly, refer https://www.zoho.com/analytics/api/v2/api-specification.html",
+      "required": true,
+      "sensitive": false
+    },
+    "ALLOWED_FILE_ROOT": {
+      "type": "string",
+      "title": "Allowed File Root Directory",
+      "description": "The absolute path to the directory that the MCP server is allowed to access when handling file operations (import/export). This is a security measure to prevent unauthorized file system access. The server will only be able to read/write files within this directory and its subdirectories.",
+      "required": true,
+      "sensitive": false
+    },
+    "QUERY_DATA_RESULT_ROW_LIMITS": {
+      "type": "number",
+      "title": "Query Data Result Row Limits",
+      "description": "The maximum number of rows that can be returned in the result when querying data from Zoho Analytics. This limit helps to prevent excessive API units consumption and ensures the agent context is not overloaded",
+      "required": false,
+      "sensitive": false
+    }
+  }
+}
