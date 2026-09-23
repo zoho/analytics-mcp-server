@@ -59,7 +59,7 @@ For detailed instructions, refer to the [official API Authentication Documentati
 | `ANALYTICS_CLIENT_SECRET` | Your Analytics Plus Cloud OAuth client secret |
 | `ANALYTICS_REFRESH_TOKEN` | Your Analytics Plus Cloud OAuth refresh token |
 | `ANALYTICS_ORG_ID` | Your Analytics Plus Cloud organization ID |
-| `ACCOUNTS_SERVER_URL` | Your Zoho Accounts Domain URL (typically `<your-accounts-uri>`) |
+| `ACCOUNTS_SERVER_URL` | Your ME Analytics Plus Accounts Domain URL (typically `<your-accounts-uri>`) |
 | `ANALYTICS_SERVER_URL` | Your Analytics Plus Cloud API Domain URL (typically `<your-analytics-uri>`) |
 
 #### Optional Variables
@@ -238,4 +238,4 @@ For Claude Desktop, add the following to your MCP configuration file:
 
 ### Support
 
-For issues and questions, contact Zoho support for account-related issues
+For issues and questions, contact Analytics Plus support for account-related issues
