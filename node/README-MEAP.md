@@ -18,7 +18,7 @@ Before using the Analytics Plus Cloud MCP Server, ensure you have:
 
 - **Node.js** - Latest LTS version recommended
 - **MCP Host Application** - Such as VS Code with GitHub Copilot extension, Claude Desktop, or Cursor
-- **Zoho Account Credentials** - Client ID, Client Secret, and Refresh Token (see [Authentication Setup](#authentication-setup))
+- **Analytics Plus Account Credentials** - Client ID, Client Secret, and Refresh Token (see [Authentication Setup](#authentication-setup))
 
 ## Quick Start
 
@@ -38,7 +38,7 @@ npm install -g analytics-plus-cloud-mcp-server
 
 ### Authentication Setup
 
-To use the Analytics Plus Cloud MCP Server, you need OAuth credentials from Zoho. Follow these steps:
+To use the Analytics Plus Cloud MCP Server, you need OAuth credentials from Analytics Plus. Follow these steps:
 
 1. **Go to the [Developer Console](https://api-console.zoho.com/)**
 2. **Create a new Self-Client application**
@@ -234,7 +234,7 @@ For Claude Desktop, add the following to your MCP configuration file:
 
 - **Authentication Errors**: Ensure your OAuth credentials are correct and have the necessary scopes
 - **Connection Timeouts**: Check your network connectivity and adjust timeout values if necessary
-- **Permission Errors**: Verify that your Zoho account has access to the specified organization and workspaces
+- **Permission Errors**: Verify that your Analytics Plus account has access to the specified organization and workspaces
 
 ### Support
 
