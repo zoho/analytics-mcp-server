@@ -38,7 +38,7 @@ npm install -g zoho-analytics-on-premise-mcp-server
 
 ### Authentication Setup
 
-To use the Zoho Analytics On-Premise MCP Server, you need OAuth credentials from Zoho. Follow these steps:
+To use the Zoho Analytics On-Premise MCP Server, you need OAuth credentials from Zoho Analytics On-Premise. Follow these steps:
 
 1. **Go to the Developer Console. This is <product-url>/developerconsole
 2. **Create a new Self-Client application**
