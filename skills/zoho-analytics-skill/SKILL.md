@@ -17,9 +17,39 @@ This skill provides programmatic access to the Zoho Analytics Operations, enabli
 - Charts, pivots, dashboards, and metadata
 
 
-## Authentication
+## How This Skill Interacts with Zoho Analytics
 
-The tools used in the skill uses OAuth for authentication. You don't have to worry about providing any credentials or secrets, as the tools will handle the complete authentication process and token lifecycle for you. Just execute the tools as mentioned in the examples.
+All interactions with Zoho Analytics occur through a single **master tool** called `execute_analytics_tool`. This is an MCP (Model Context Protocol) tool provided by the Zoho Analytics MCP server.
+
+### Master Tool: execute_analytics_tool
+
+**Purpose:** Routes requests to specific Zoho Analytics operations based on the tool name provided.
+
+**Parameters:**
+- `tool_name` (string, required) — The camelCase name of the specific operation to execute (e.g., `createWorkspace`, `importData`, `createChart`)
+- `tool_args` (object, required) — A dictionary/object containing the arguments required by the specific tool
+
+**Authentication:** 
+The tool handles OAuth 2.0 authentication automatically, including token refresh. You don't need to provide credentials or manage tokens — just call the tool with the appropriate tool name and arguments.
+
+**Usage Pattern:**
+```json
+{
+  "tool_name": "specificOperationName",
+  "tool_args": {
+    "param1": "value1",
+    "param2": "value2"
+  }
+}
+```
+
+**How to Use This Skill:**
+1. Identify what operation you need (workspace management, data operations, etc.) using the sections below
+2. Navigate to the appropriate reference file
+3. Find the specific tool name and required arguments
+4. Call `execute_analytics_tool` with the tool name and arguments as shown in the examples
+
+**Important:** You will only see `execute_analytics_tool` in your available tools. The actual operation routing happens internally based on the `tool_name` you provide.
 
 ## Operation Categories
 

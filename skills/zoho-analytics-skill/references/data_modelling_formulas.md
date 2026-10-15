@@ -31,7 +31,7 @@ Zoho Analytics supports two distinct types of formula-based computed fields that
 
 For detailed tool usage, parameters, and examples, load the appropriate reference:
 
-- **Aggregate Formulas** (list, add, edit): [data_modelling_formulas_aggregate.md](./data_modelling_formulas_aggregate.md)
+- **Aggregate Formulas** (list, add, edit, delete): [data_modelling_formulas_aggregate.md](./data_modelling_formulas_aggregate.md)
 - **Custom Formula Columns** (list, add, edit, delete): [data_modelling_formulas_custom_columns.md](./data_modelling_formulas_custom_columns.md)
 
 ---

@@ -59,10 +59,9 @@ class ToolRegistry {
  
     const definition = this.tools.get(toolName);
     if (!definition) {
-      const available = [...this.tools.keys()].join(", ");
       return {
         ok: false,
-        error: `Unknown tool "${toolName}".`,
+        error: `Unknown tool "${toolName}". Please refer to the Zoho Analytics Skill to understand the available tools and invoke them as necessary.`,
       };
     }
  

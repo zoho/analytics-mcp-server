@@ -55,47 +55,83 @@ defineTool({
   description: `
     <use_case>
       1) Fetches the list of workspaces in the user's organization.
-      2) Used in the scenario where the user needs to select a workspace for further operations.
+      2) Used when the user needs to select a workspace for further operations.
     </use_case>
 
     <important_notes>
-      1) Try to avoid setting includeSharedWorkspaces to True unless you specifically need to see shared workspaces.
-      2) If you don't find a workspace from the owned workspaces, try setting includeSharedWorkspaces to True to see if the workspace is shared with you.
+      1) Avoid including shared workspaces unless specifically needed.
+      2) If the workspace is not found among owned workspaces, try
+         includeSharedWorkspaces = true to check shared workspaces.
     </important_notes>
 
     <returns>
-      A list of dictionaries, each representing a workspace with its details.
-      If an error occurs, returns an error message.
+      A list of workspace dictionaries, or an error message.
+      When shared workspaces are not requested, the response is prefixed
+      with "List of owned workspaces: ".
     </returns>
   `,
   args: {
     includeSharedWorkspaces: z
       .boolean()
-      .describe("If True, includes shared workspaces in the list"),
+      .optional()
+      .describe("If true, includes shared workspaces in the list"),
+
     containsStr: z
       .string()
       .optional()
-      .describe("Optional string to filter workspaces with a contains criteria"),
+      .describe("Optional string to filter workspaces by a contains criterion"),
   },
-  handler: async ({ includeSharedWorkspaces, containsStr }) => {
+
+  handler: async ({
+    includeSharedWorkspaces = false,
+    containsStr,
+  }) => {
     try {
       const MAX_WORKSPACES = 20;
       const ac = getAnalyticsClient();
       if (!includeSharedWorkspaces) {
         const ownedWorkspaces = await ac.getOwnedWorkspaces();
-        const result = filterAndLimitWorkspaces(ownedWorkspaces, containsStr, true, MAX_WORKSPACES);
-        return ToolResponse(JSON.stringify(result));
-      } else {
-        const allWorkspaces = await ac.getWorkspaces();
-        const ownedWorkspaces = allWorkspaces.ownedWorkspaces || [];
-        const sharedWorkspaces = allWorkspaces.sharedWorkspaces || [];
-        const ownedResult = filterAndLimitWorkspaces(ownedWorkspaces, containsStr, true, MAX_WORKSPACES);
-        const remainingCapacity = MAX_WORKSPACES - ownedResult.length;
-        const sharedResult = filterAndLimitWorkspaces(sharedWorkspaces, containsStr, false, remainingCapacity);
-        return ToolResponse(JSON.stringify([...ownedResult, ...sharedResult]));
+
+        const result = filterAndLimitWorkspaces(
+          ownedWorkspaces,
+          containsStr,
+          true,
+          MAX_WORKSPACES
+        );
+
+        return ToolResponse(
+          `List of owned workspaces: ${JSON.stringify(result)}`
+        );
       }
+
+      const allWorkspaces = await ac.getWorkspaces();
+      const ownedWorkspaces = allWorkspaces.ownedWorkspaces || [];
+      const sharedWorkspaces = allWorkspaces.sharedWorkspaces || [];
+
+      const ownedResult = filterAndLimitWorkspaces(
+        ownedWorkspaces,
+        containsStr,
+        true,
+        MAX_WORKSPACES
+      );
+
+      const remainingCapacity = MAX_WORKSPACES - ownedResult.length;
+
+      const sharedResult = filterAndLimitWorkspaces(
+        sharedWorkspaces,
+        containsStr,
+        false,
+        remainingCapacity
+      );
+
+      return ToolResponse(
+        JSON.stringify([...ownedResult, ...sharedResult])
+      );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while fetching workspaces");
+      return logAndReturnError(
+        err,
+        "An error occurred while fetching workspaces"
+      );
     }
   },
 });

@@ -605,6 +605,60 @@ declare module './AnalyticsClient' {
          */
         addAggregateFormula(formulaName: string, expression: string, config?: Config): Promise<string>;
 
+        /**
+         * Edit the specified aggregate formula.
+         * @param {string} formulaId - Id of the aggregate formula to be updated.
+         * @param {string} expression - Formula expression.
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<void>}
+         * @throws {Error} If the request failed due to some error.
+         */
+        editAggregateFormula(formulaId: string, expression: string, config?: Config): Promise<void>;
+
+        /**
+         * Delete the specified aggregate formula.
+         * @param {string} formulaId - Id of the aggregate formula to be deleted.
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<void>}
+         * @throws {Error} If the request failed due to some error.
+         */
+        deleteAggregateFormula(formulaId: string, config?: Config): Promise<void>;
+
+        /**
+         * Returns list of all formula columns for the specified table/view.
+         * @returns {Promise<JSONArray>} Formula column list.
+         * @throws {Error} If the request failed due to some error.
+         */
+        getFormulaColumns(): Promise<JSONArray>;
+
+        /**
+         * Add a formula column in the specified table/view.
+         * @param {string} formulaName - Name of the formula column to be created.
+         * @param {string} expression - Formula expression.
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<string>} Created formula column id.
+         * @throws {Error} If the request failed due to some error.
+         */
+        addFormulaColumn(formulaName: string, expression: string, config?: Config): Promise<string>;
+
+        /**
+         * Edit the specified formula column.
+         * @param {string} formulaId - Id of the formula column to be updated.
+         * @param {string} expression - Formula expression.
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<void>}
+         * @throws {Error} If the request failed due to some error.
+         */
+        editFormulaColumn(formulaId: string, expression: string, config?: Config): Promise<void>;
+
+        /**
+         * Delete the specified formula column.
+         * @param {string} formulaId - Id of the formula column to be deleted.
+         * @param {Config} [config] - Contains any additional control attributes.
+         * @returns {Promise<void>}
+         * @throws {Error} If the request failed due to some error.
+         */
+        deleteFormulaColumn(formulaId: string, config?: Config): Promise<void>;
 
         addRow(columnValues, config?: Config): Promise<void>;
 

@@ -164,6 +164,40 @@ defineTool({
   },
 });
 
+
+async function editAggregateFormulaHandler({ workspaceId, tableId, formulaId, expression, description, orgId }: {
+  workspaceId: string;
+  tableId: string;
+  formulaId: string;
+  expression: string;
+  description?: string;
+  orgId?: string;
+}) {
+  try {
+    if (!orgId) {
+      orgId = config.ORGID || "";
+    }
+    return await retryWithFallback(
+      [orgId],
+      workspaceId,
+      "WORKSPACE",
+      async (org_id, workspace) => {
+        const ac = getAnalyticsClient();
+        const viewInst = ac.getViewInstance(org_id, workspace, tableId);
+        const sdkConfig: Record<string, string> = {};
+        if (description) {
+          sdkConfig.description = description;
+        }
+        await (viewInst as any).editAggregateFormula(formulaId, expression, sdkConfig);
+        return ToolResponse(`Aggregate formula (ID: ${formulaId}) updated successfully.`);
+      },
+      workspaceId
+    );
+  } catch (err) {
+    return logAndReturnError(err, "An error occurred while editing the aggregate formula");
+  }
+}
+
 defineTool({
   name: "editAggregateFormula",
   description: `
@@ -177,54 +211,110 @@ defineTool({
     - Any column or table names in the expression should be enclosed in double quotes. Literal values in single quotes.
     - Assume the expression is MySQL-compatible.
 
-    3. Arguments:
-    - workspaceId (str): The ID of the workspace.
-    - formulaId (str): The ID of the aggregate formula to edit.
-    - expression (str): The new aggregate formula expression.
-    - description (str | None): Optional. New description for the aggregate formula.
-    - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
+     3. Arguments:
+     - workspaceId (str): The ID of the workspace.
+     - tableId (str): The View ID of the table (view) that owns the aggregate formula.
+     - formulaId (str): The ID of the aggregate formula to edit.
+     - expression (str): The new aggregate formula expression.
+     - description (str | None): Optional. New description for the aggregate formula.
+     - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
 
-    4. Returns:
-    - str: Success message, or an error message.
-  `,
-  args: {
-    workspaceId: z.string().describe("The ID of the workspace"),
-    formulaId: z.string().describe("The ID of the aggregate formula to edit"),
-    expression: z
-      .string()
-      .describe('The new aggregate formula expression, e.g. SUM(IF("Status" = \'Active\', "Revenue", 0))'),
-    description: z
-      .string()
-      .optional()
-      .describe("Optional. New description for the aggregate formula."),
-    orgId: z
-      .string()
-      .optional()
-      .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
-  },
-  handler: async ({ workspaceId, formulaId, expression, description, orgId }) => {
-    try {
-      if (!orgId) {
-        orgId = config.ORGID || "";
-      }
-      return await retryWithFallback(
-        [orgId],
-        workspaceId,
-        "WORKSPACE",
-        async (org_id, workspace) => {
-          const ac = getAnalyticsClient();
-          const wsInst = ac.getWorkspaceInstance(org_id, workspace);
-          const sdkConfig: Record<string, string> = {};
-          if (description) {
-            sdkConfig.description = description;
-          }
-          await (wsInst as any).editAggregateFormula(formulaId, expression, sdkConfig);
-          return ToolResponse(`Aggregate formula (ID: ${formulaId}) updated successfully.`);
-        },
-        workspaceId
-      );
-    } catch (err) {
-      return logAndReturnError(err, "An error occurred while editing the aggregate formula");
+     4. Returns:
+     - str: Success message, or an error message.
+   `,
+   args: {
+     workspaceId: z.string().describe("The ID of the workspace"),
+     tableId: z.string().describe("The ID of the table (view) that owns the aggregate formula"),
+     formulaId: z.string().describe("The ID of the aggregate formula to edit"),
+     expression: z
+       .string()
+       .describe('The new aggregate formula expression, e.g. SUM(IF("Status" = \'Active\', "Revenue", 0))'),
+     description: z
+       .string()
+       .optional()
+       .describe("Optional. New description for the aggregate formula."),
+     orgId: z
+       .string()
+       .optional()
+       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
+   },
+   handler: editAggregateFormulaHandler,
+ });
+
+async function deleteAggregateFormulaHandler({ workspaceId, tableId, formulaId, deleteDependentViews, orgId }: {
+  workspaceId: string;
+  tableId: string;
+  formulaId: string;
+  deleteDependentViews?: boolean;
+  orgId?: string;
+}) {
+
+  try {
+    if (!orgId) {
+      orgId = config.ORGID || "";
     }
-  },
-});
+    return await retryWithFallback(
+      [orgId],
+      workspaceId,
+      "WORKSPACE",
+      async (org_id, workspace) => {
+        const ac = getAnalyticsClient();
+        const viewInst = ac.getViewInstance(org_id, workspace, tableId);
+        const sdkConfig: Record<string, boolean> = {};
+        
+        // Add deleteDependentViews to config if provided
+        if (deleteDependentViews !== undefined) {
+          sdkConfig.deleteDependentViews = deleteDependentViews;
+        }
+        
+        await (viewInst as any).deleteAggregateFormula(formulaId, sdkConfig);
+        return ToolResponse(`Aggregate formula (ID: ${formulaId}) deleted successfully.`);
+      },
+      workspaceId
+    );
+  } catch (err) {
+    return logAndReturnError(err, "An error occurred while deleting the aggregate formula");
+  }
+}
+
+defineTool({
+  name: "deleteAggregateFormula",
+  description: `
+    1. Use Case:
+    - Delete an existing aggregate formula from a workspace in Zoho Analytics.
+    - Use this when you need to permanently remove an aggregate formula that is no longer needed.
+
+    2. Important Notes:
+    - Use listAggregateFormulas to find the formulaId of the aggregate formula you want to delete.
+    - This operation is irreversible. The aggregate formula will be permanently removed.
+    - If the aggregate formula is used in views (reports/dashboards), you must set deleteDependentViews=true to delete those views along with the formula.
+    - By default (deleteDependentViews=false), deletion will fail if dependent views exist - this is a safety measure.
+    - Consider checking for dependent views before deletion, or prompt the user to confirm deletion of dependent views.
+
+     3. Arguments:
+     - workspaceId (str): The ID of the workspace containing the aggregate formula.
+     - tableId (str): The ID of the table (view) that owns the aggregate formula.
+     - formulaId (str): The ID of the aggregate formula to delete.
+     - deleteDependentViews (bool | None): Optional. Set to true to delete the aggregate formula along with all dependent views. Default is false (safe mode - fails if dependent views exist).
+     - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
+
+     4. Returns:
+     - str: Success message confirming deletion, or an error message if the operation fails.
+   `,
+   args: {
+     workspaceId: z.string().describe("The ID of the workspace containing the aggregate formula"),
+     tableId: z.string().describe("The ID of the table (view) that owns the aggregate formula"),
+     formulaId: z.string().describe("The ID of the aggregate formula to delete"),
+     deleteDependentViews: z
+       .boolean()
+       .optional()
+       .describe(
+         "Optional. Set to true to delete the aggregate formula along with all dependent views. Default is false (safe mode)."
+       ),
+     orgId: z
+       .string()
+       .optional()
+       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
+   },
+   handler: deleteAggregateFormulaHandler,
+ });

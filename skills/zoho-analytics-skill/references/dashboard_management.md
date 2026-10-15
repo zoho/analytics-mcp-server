@@ -62,7 +62,7 @@ execute_analytics_tool(
 
 ## 2. `createDashboard`
 
-Creates a new dashboard in the specified workspace.
+Creates a new dashboard in the specified workspace. When creating a new dashboard, it is also recommended to provide a nice initial theme so that is is visually appealing.
 
 **Required parameters:**
 

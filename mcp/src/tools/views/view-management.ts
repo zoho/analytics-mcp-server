@@ -322,8 +322,8 @@ defineTool({
         "WORKSPACE",
         async (org_id, workspace) => {
           const ac = getAnalyticsClient();
-          const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
-          await (workspaceInst as any).deleteView(viewId);
+          const viewInstance = ac.getViewInstance(org_id || "", workspace, viewId);
+          await viewInstance.delete();
           return ToolResponse(`View '${viewId}' deleted successfully.`);
         },
         workspaceId
