@@ -4,7 +4,7 @@
         "type": "stdio",
         "command": "npx",
         "args": [
-          "-y","zoho-analytics-mcp-server@plugin-v1.0.0"
+          "-y","zoho-analytics-mcp-server@plugin"
         ],
         "env": {
             "ANALYTICS_CLIENT_ID": "${user_config.ANALYTICS_CLIENT_ID}",
