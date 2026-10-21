@@ -1,6 +1,6 @@
 {
   "name": "{{PACKAGE_NAME}}",
-  "version": "1.0.4",
+  "version": "1.0.7",
   "description": "{{PACKAGE_DESCRIPTION}}",
   "bin": {
     "{{BINARY_NAME}}": "./dist/src/index.js"
