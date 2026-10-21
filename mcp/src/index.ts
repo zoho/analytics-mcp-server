@@ -34,7 +34,7 @@ for (const envVar of requiredEnvVars) {
 
 const server = new McpServer({
   name: "zoho-analytics",
-  version: "1.0.5"
+  version: "1.0.6"
 });
 
 toolRegistry.setContext({ server });
@@ -44,7 +44,7 @@ registerMasterTool(server);
 const transport = new StdioServerTransport();
 (async () => {
   await server.connect(transport);
-  console.error("Zoho Analytics Plugin Compatible MCP server is running and connected to stdin/stdout::v1.0.5");
+  console.error("Zoho Analytics Plugin Compatible MCP server is running and connected to stdin/stdout::v1.0.6");
 })().catch((error) => {
   console.error("Failed to start Zoho Analytics Plugin MCP server:", error);
   process.exit(1);
