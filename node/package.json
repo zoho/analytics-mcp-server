@@ -5,6 +5,13 @@
   "bin": {
     "zoho-analytics-mcp-server": "./dist/src/index.js"
   },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.test.ts"
+    ]
+  },
   "scripts": {
     "prebuild": "PRODUCT_NAME='Zoho Analytics' node scripts/generate-package-json.js",
     "prebuild:meap": "PRODUCT_NAME='Analytics Plus Cloud' node scripts/generate-package-json.js",
@@ -22,8 +29,11 @@
   "license": "MIT",
   "type": "commonjs",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "24.0.3",
+    "jest": "^30.5.2",
     "nodemon": "3.1.10",
+    "ts-jest": "^29.4.15",
     "ts-node": "10.9.2",
     "typescript": "5.8.3"
   },
