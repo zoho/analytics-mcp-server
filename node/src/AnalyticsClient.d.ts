@@ -247,6 +247,15 @@ declare module './AnalyticsClient' {
         createWorkspace(workspaceName: string, config?: Config): Promise<string>;
 
         /**
+         * Returns the workspaces of the specified organization that the authenticated user can reach.
+         * An Account Admin and an Organization Admin receive every active workspace of the organization,
+         * every other user receives only the workspaces shared with them.
+         * @returns {Promise<JSONArray>} Workspace list.
+         * @throws {Error} If the request failed due to some error.
+         */
+        getOrgWorkspaces(): Promise<JSONArray>;
+
+        /**
          * Returns list of admins for a specified organization.
          * @param {Config} [config] - Contains any additional control attributes.
          * @returns {Promise<JSONArray>} Organization admin list.
@@ -447,7 +456,7 @@ declare module './AnalyticsClient' {
 
         getViews(config?: Config): Promise<JSONArray>;
 
-        createReport(config?: Config): Promise<JSONArray>;
+        createReport(config?: Config): Promise<string>;
 
         /**
          * Returns the metadata of the specified report.

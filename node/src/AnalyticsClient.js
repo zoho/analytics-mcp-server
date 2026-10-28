@@ -5,7 +5,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const FormData = require('form-data');
 const querystring = require('querystring');
-const mcpVersionTag = "v1.0.7";
+const mcpVersionTag = "v1.0.8";
 
 
 class AnalyticsClient
@@ -721,6 +721,21 @@ class OrgAPI
         config.workspaceName = workspaceName;
         var result = await this.ac.handleV2Request(uriPath, "POST", config, this.header);
         return result.workspaceId;
+    }
+
+    /**
+     * Returns the workspaces of the specified organization that the authenticated user can reach.
+     * An Account Admin and an Organization Admin receive every active workspace of the organization,
+     * every other user receives only the workspaces shared with them.
+     * @method getOrgWorkspaces
+     * @returns {JSONArray} Workspace list.
+     * @throws {Error} If the request failed due to some error.
+     */
+    async getOrgWorkspaces()
+    {
+        var uriPath = "/restapi/v2/orgs/workspaces";
+        var result = await this.ac.handleV2Request(uriPath, "GET", null, this.header);
+        return result.workspaces;
     }
 
     /**

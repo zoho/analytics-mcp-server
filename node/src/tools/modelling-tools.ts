@@ -1,422 +1,11 @@
 import { z } from "zod";
 import type { ServerInstance } from "../common";
-import {getAnalyticsClient, config } from '../utils/apiUtil';
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../utils/common";
+import { getAnalyticsClient } from '../utils/apiUtil';
+import { requireOrgId, isOrgMismatchError, ToolResponse, logAndReturnError } from "../utils/common";
 import dedent from "dedent";
 import { PRODUCT_NAME } from "../config/product";
-import { getChartTypeSuggestions } from "../utils/charts";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Chart Compatibility Validation Framework
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Compatibility categories as defined in reports-compatability.json legend */
-type CompatClass = "D" | "A" | "M" | "G" | "unknown";
-
-/**
- * Classifies a column's operation into a compatibility category.
- *
- * D (Dimension): discrete/categorical - string actual, date time-parts, numeric as dimension/range/count
- * A (Aggregate): aggregated value - sum/avg/min/max/count/distinctCount on numeric
- * M (Measure): numeric in measure mode - treated as a continuous numeric value
- * G (Geo): geographic column
- */
-function classifyOperation(operation: string): CompatClass {
-    switch (operation) {
-        // Dimension operations
-        case "actual":
-        case "dimension":
-        case "year":
-        case "month":
-        case "week":
-        case "day":
-        case "hour":
-        case "quarter":
-        case "weekDay":
-        case "fullDate":
-        case "dateTime":
-        case "range":
-        case "monthYear":
-        case "quarterYear":
-        case "weekYear":
-        case "seasonal":
-        case "relative":
-            return "D";
-
-        // Aggregate operations
-        case "sum":
-        case "average":
-        case "min":
-        case "max":
-        case "count":
-        case "distinctCount":
-            return "A";
-
-        // Measure (numeric treated as continuous)
-        case "measure":
-            return "M";
-
-        // Geo
-        case "geo":
-            return "G";
-
-        default:
-            return "unknown";
-    }
-}
-
-/**
- * Normalizes a user-supplied chartType string to the key used in the
- * compatibility map below.
- */
-const CHART_TYPE_ALIASES: Record<string, string> = {
-    "bar":                        "bar|horizontalBar",
-    "horizontal bar":             "bar|horizontalBar",
-    "stacked bar":                "stackedBar|horizontalStackedBar",
-    "horizontal stacked bar":     "stackedBar|horizontalStackedBar",
-    "line":                       "line|smoothLine|step|area|smoothArea",
-    "smooth line":                "line|smoothLine|step|area|smoothArea",
-    "step":                       "line|smoothLine|step|area|smoothArea",
-    "area":                       "line|smoothLine|step|area|smoothArea",
-    "smooth area":                "line|smoothLine|step|area|smoothArea",
-    "stacked area":               "stackedArea|stackedSmoothArea",
-    "stacked smooth area":        "stackedArea|stackedSmoothArea",
-    "pie":                        "pie|ring|semiPie|semiRing",
-    "ring":                       "pie|ring|semiPie|semiRing",
-    "semi pie":                   "pie|ring|semiPie|semiRing",
-    "semi ring":                  "pie|ring|semiPie|semiRing",
-    "funnel":                     "funnel|pyramid",
-    "pyramid":                    "funnel|pyramid",
-    "butterfly":                  "butterfly",
-    "histogram":                  "histogram",
-    "scatter":                    "scatter",
-    "bubble":                     "bubble|packedBubble",
-    "packed bubble":              "bubble|packedBubble",
-    "bubble pie":                 "bubblePie",
-    "combo":                      "combo|comboBarWithSmoothLine",
-    "combo bar with smooth line": "combo|comboBarWithSmoothLine",
-    "combo bar smooth line":      "combo|comboBarWithSmoothLine",
-    "web":                        "web|webWithFill|webWithoutFill",
-    "web with fill":              "web|webWithFill|webWithoutFill",
-    "web without fill":           "web|webWithFill|webWithoutFill",
-    "heat map":                   "heatMap",
-    "map scatter":                "mapScatter|mapFilled",
-    "map filled":                 "mapScatter|mapFilled",
-    "map bubble":                 "mapBubble",
-    "map pie":                    "mapPie|mapBubblePie",
-    "map bubble pie":             "mapPie|mapBubblePie",
-    "geo heat map":               "geoHeatMap",
-    "tree map":                   "treeMap",
-    "sunburst":                   "sunburst",
-    "sankey":                     "sankey",
-    "word cloud":                 "wordCloud",
-    "race line":                  "raceLine|raceBar",
-    "race bar":                   "raceLine|raceBar",
-    "race bubble":                "raceBubble",
-    "gantt":                      "gantt",
-    "table chart":                "tableChart",
-    "map area":                   "mapScatter|mapFilled",
-    "area with points":           "line|smoothLine|step|area|smoothArea",
-};
-
-function normalizeChartType(chartType: string): string {
-    const lower = chartType.toLowerCase();
-    return CHART_TYPE_ALIASES[lower] ?? lower;
-}
-
-/** Constraint token from compatibility JSON, e.g. "D", "A", "D|A", "MultiA", "Opt" */
-type ConstraintToken = string;
-
-/**
- * Determines whether a list of classified columns satisfies a constraint token.
- *
- * Rules:
- *   "Opt"    - zero columns is OK; non-empty must match one of the pipe-separated classes
- *   "MultiA" - two or more A-classified columns required
- *   "D|A"    - every column must be D or A (at least one column required unless combined with Opt)
- *   "D"      - every column must be D, at least one required
- *   "A"      - every column must be A, at least one required
- *   "M"      - every column must be M, at least one required
- *   "G"      - every column must be G, at least one required
- */
-function satisfiesConstraint(classes: CompatClass[], constraint: ConstraintToken): boolean {
-    const tokens = constraint.split("|");
-    const isOpt = tokens.includes("Opt");
-    const nonOptTokens = tokens.filter(t => t !== "Opt");
-
-    if (classes.length === 0) {
-        return isOpt;
-    }
-
-    // MultiA: need 2+ Aggregates
-    if (nonOptTokens.includes("MultiA")) {
-        const aCount = classes.filter(c => c === "A").length;
-        if (aCount >= 2) return true;
-        // fall through to check other tokens if present
-    }
-
-    // If constraint is pure "Opt" with no other type restrictions,
-    // any non-empty value is acceptable ("Opt" means "optional", not "must be empty")
-    const allowedClasses = nonOptTokens.filter(t => t !== "MultiA") as CompatClass[];
-    if (allowedClasses.length === 0) {
-        return isOpt;
-    }
-
-    return classes.every(c => allowedClasses.includes(c));
-}
-
-type ShelfName = "x" | "y" | "color" | "size" | "text" | "tooltip";
-
-interface AxisColumnInput {
-    type: string;       // "xAxis" | "yAxis" | "colorAxis" | "sizeAxis" | "textAxis"
-    columnName: string;
-    operation: string;
-    tableName?: string;
-}
-
-/** Maps axisColumn type → compatibility shelf name */
-function axisTypeToShelf(axisType: string): ShelfName | null {
-    switch (axisType) {
-        case "xAxis":     return "x";
-        case "yAxis":     return "y";
-        case "colorAxis": return "color";
-        case "sizeAxis":  return "size";
-        case "textAxis":  return "text";
-        default:          return null;
-    }
-}
-
-// Compatibility rules derived from reports-compatability.json
-const CHART_COMPAT: Record<string, Array<Partial<Record<ShelfName, ConstraintToken>>>> = {
-    "pie|ring|semiPie|semiRing": [
-        { x: "D", y: "A" },
-        { x: "D|A", y: "Opt" },
-        { x: "Opt", y: "A|D" },
-    ],
-    "funnel|pyramid": [
-        { x: "D", y: "A" },
-        { x: "Opt", y: "A" },
-    ],
-    "bar|horizontalBar": [
-        { x: "D", y: "A|MultiA", color: "D|A|M|Opt" },
-        { x: "D|A", y: "Opt" },
-        { x: "Opt", y: "D|A" },
-        { x: "A", y: "Opt" },
-    ],
-    "stackedBar|horizontalStackedBar": [
-        { x: "D", y: "A", color: "D|A|M" },
-        { x: "Opt", y: "D|A", color: "D|A|M" },
-        { x: "D|A", y: "Opt", color: "D|A|M" },
-    ],
-    "butterfly": [
-        { x: "D", y: "A", color: "D" },
-        { x: "D", y: "MultiA" },
-    ],
-    "histogram": [
-        { x: "D", y: "A|Opt" },
-        { x: "Opt", y: "A" },
-        { x: "A|Opt", y: "D" },
-        { x: "A", y: "Opt" },
-    ],
-    "line|smoothLine|step|area|smoothArea": [
-        { x: "D", y: "A|D|Opt", color: "D|A|M|Opt" },
-        { x: "Opt", y: "A|D" },
-        { x: "A|D", y: "Opt" },
-    ],
-    "stackedArea|stackedSmoothArea": [
-        { x: "D", y: "A", color: "D|A|M" },
-        { x: "D", y: "MultiA" },
-    ],
-    "scatter": [
-        { x: "D", y: "A|D" },
-        { x: "A", y: "A|D" },
-        { x: "D|A", y: "Opt" },
-    ],
-    "bubble|packedBubble": [
-        { x: "D|A", y: "A|D", size: "A" },
-        { x: "D|A", y: "Opt", size: "A", color: "A|D" },
-        { x: "Opt", y: "D|A", size: "A", color: "A|D" },
-    ],
-    "bubblePie": [
-        { x: "D", y: "A", size: "A", color: "D" },
-        { x: "D", y: "MultiA", size: "A" },
-    ],
-    "combo|comboBarWithSmoothLine": [
-        { x: "D", y: "MultiA" },
-        { x: "D", y: "A", color: "D" },
-    ],
-    "web|webWithFill|webWithoutFill": [
-        { x: "D", y: "A", color: "D|Opt" },
-    ],
-    "heatMap": [
-        { x: "D", y: "D", color: "A", size: "Opt" },
-    ],
-    "mapScatter|mapFilled": [
-        { x: "G", y: "A|D|M|Opt" },
-    ],
-    "mapBubble": [
-        { x: "G", y: "A|D|M|Opt", size: "A" },
-    ],
-    "mapPie|mapBubblePie": [
-        { x: "G", y: "A|MultiA", size: "A|Opt", color: "A|D|M|Opt" },
-    ],
-    "geoHeatMap": [
-        { x: "G", y: "A|D|M|Opt" },
-    ],
-    "treeMap": [
-        { x: "D", y: "A|Opt", color: "D|A|M|Opt", size: "A|Opt" },
-        { x: "A", y: "D|Opt", color: "D|A|M|Opt", size: "A|Opt" },
-        { x: "A|Opt", y: "D", color: "D|A|M|Opt", size: "A|Opt" },
-        { x: "D|Opt", y: "A", color: "D|A|M|Opt", size: "A|Opt" },
-        { x: "D|Opt", y: "MultiA", size: "A|Opt" },
-    ],
-    "sunburst": [
-        { x: "D", y: "A|M", color: "D", text: "D|Opt", tooltip: "D|Opt" },
-    ],
-    "sankey": [
-        { x: "D", y: "D", text: "A|M",     size: "A|Opt",  tooltip: "A|M|Opt" },
-        { x: "D", y: "D", text: "A|M|Opt", size: "A",      tooltip: "A|M|Opt" },
-        { x: "D", y: "D", text: "A|M|Opt", size: "A|Opt",  tooltip: "A|M" },
-    ],
-    "wordCloud": [
-        { x: "D",   y: "A|D", color: "A|D|M|Opt", size: "A" },
-        { x: "A",   y: "A|D", color: "A|D|M|Opt", size: "A" },
-        { x: "D",   y: "Opt", color: "A",          size: "A" },
-        { x: "A",   y: "Opt", color: "D",          size: "A" },
-        { x: "Opt", y: "D",   color: "A",          size: "A" },
-        { x: "Opt", y: "A",   color: "D",          size: "A" },
-    ],
-    "raceLine|raceBar": [
-        { x: "D", y: "A|M", color: "D" },
-    ],
-    "raceBubble": [
-        { x: "A", y: "A", color: "D", size: "A", tooltip: "D" },
-    ],
-    "gantt": [
-        { x: "D", y: "D" },
-    ],
-};
-
-interface ValidationResult {
-    valid: boolean;
-    error?: string;
-}
-
-/**
- * Validates whether the provided axisColumns are compatible with the given chartType.
- *
- * Returns { valid: true } on success, or { valid: false, error: <detailed message> } on failure.
- * The error message is designed to be consumed by an AI agent so it can self-correct.
- */
-function validateChartCompatibility(chartType: string, axisColumns: AxisColumnInput[]): ValidationResult {
-    const normalizedKey = normalizeChartType(chartType);
-    const cases = CHART_COMPAT[normalizedKey];
-
-    if (!cases) {
-        const suggestions = getChartTypeSuggestions(chartType, CHART_TYPE_ALIASES, 5);
-        return {
-        valid: false,
-        error: suggestions.length
-            ? `Given chart type was not found. Did you mean any of the following charts:\n${suggestions
-                  .map(s => `- ${s}`)
-                  .join("\n")}`
-            : "Chart type not found.",
-        };
-    }
-
-    // Group columns by shelf
-    const shelves: Partial<Record<ShelfName, CompatClass[]>> = {};
-    for (const col of axisColumns) {
-        const shelf = axisTypeToShelf(col.type);
-        if (!shelf) continue;
-        const cls = classifyOperation(col.operation);
-        if (!shelves[shelf]) shelves[shelf] = [];
-        shelves[shelf]!.push(cls);
-    }
-
-    // All shelves referenced in any case
-    const allShelves = new Set<ShelfName>();
-    for (const caseObj of cases) {
-        for (const shelf of Object.keys(caseObj) as ShelfName[]) {
-            allShelves.add(shelf);
-        }
-    }
-
-    // Try each case - if any passes, we're valid
-    for (const caseObj of cases) {
-        let caseMatches = true;
-        for (const shelf of allShelves) {
-            const constraint = caseObj[shelf] ?? "Opt";
-            const classes = shelves[shelf] ?? [];
-            if (!satisfiesConstraint(classes, constraint)) {
-                caseMatches = false;
-                break;
-            }
-        }
-        if (caseMatches) return { valid: true };
-    }
-
-    // Build a human-/agent-readable error message
-    const legend: Record<CompatClass, string> = {
-        D:       "Dimension (discrete: string 'actual', date time-parts like year/month/week, numeric 'dimension')",
-        A:       "Aggregate (sum/average/min/max/count/distinctCount)",
-        M:       "Measure (numeric 'measure' - continuous numeric value)",
-        G:       "Geo (geographic column)",
-        unknown: "Unknown (unrecognized operation)",
-    };
-
-    const resolvedLines: string[] = [];
-    for (const shelf of allShelves) {
-        const cols = shelves[shelf] ?? [];
-        if (cols.length === 0) {
-            resolvedLines.push(`  - ${shelf}Axis: (empty)`);
-        } else {
-            const details = (shelves[shelf] ?? []).map((cls, i) => {
-                const op = axisColumns.filter(c => axisTypeToShelf(c.type) === shelf)[i]?.operation ?? "?";
-                return `${cls} [op: "${op}"]`;
-            });
-            resolvedLines.push(`  - ${shelf}Axis: [${details.join(", ")}]`);
-        }
-    }
-
-    const caseLines = cases.map((caseObj, i) => {
-        const parts = (Object.keys(caseObj) as ShelfName[]).map(s => `${s}=${caseObj[s]}`);
-        // Diagnose which shelf failed for this case
-        const failedShelves: string[] = [];
-        for (const shelf of allShelves) {
-            const constraint = caseObj[shelf] ?? "Opt";
-            const classes = shelves[shelf] ?? [];
-            if (!satisfiesConstraint(classes, constraint)) {
-                const actual = classes.length === 0 ? "(empty)" : `[${classes.join(", ")}]`;
-                failedShelves.push(`${shelf}Axis must be "${constraint}" but got ${actual}`);
-            }
-        }
-        return `  Case ${i + 1}: { ${parts.join(", ")} } - FAILED: ${failedShelves.join("; ")}`;
-    });
-
-    const error = dedent`
-        Chart compatibility validation failed for chart type "${chartType}".
-
-        Resolved axis classifications:
-        ${resolvedLines.join("\n")}
-
-        None of the valid configurations matched:
-        ${caseLines.join("\n")}
-
-        Legend:
-          D = ${legend.D}
-          A = ${legend.A}
-          M = ${legend.M}
-          G = ${legend.G}
-          MultiA = Two or more Aggregate columns on the same axis
-          Opt = Optional (may be empty)
-
-        Action: Review your axisColumns and adjust the column types and/or operations so that
-        at least one of the valid cases above is satisfied.
-    `.trim();
-
-    return { valid: false, error };
-}
+import { createChartReportSchema, createChartReportHandler, createSummaryReportSchema, createSummaryReportHandler, createPivotReportSchema, createPivotReportHandler, updateChartSchema, updateChartHandler } from "./handlers/reports";
+import { createQueryTableSchema, createQueryTableHandler, editQueryTableSchema, editQueryTableHandler } from "./handlers/query-tables";
 
 export function registerModellingTools(server: ServerInstance) {
 
@@ -443,7 +32,6 @@ export function registerModellingTools(server: ServerInstance) {
         - formulaName (str): The name of the aggregate formula.
         - expression (str): The SQL aggregate expression.
             For example: SUM("Revenue") or AVG("Salary") or running_sum(sum("Sales"."Sales"))
-        - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
 
         4. Returns:
         - str: Success message with the created formula ID, or an error message.
@@ -453,7 +41,6 @@ export function registerModellingTools(server: ServerInstance) {
             tableId: z.string().describe("The ID of the table (view) in which to create the aggregate formula"),
             formulaName: z.string().describe("The name of the aggregate formula to create"),
             expression: z.string().describe('The SQL aggregate expression, e.g. SUM("Revenue") or running_sum(sum("Sales"."Sales"))'),
-            orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
         },
         annotations: {
             title: "Add Aggregate Formula",
@@ -463,22 +50,18 @@ export function registerModellingTools(server: ServerInstance) {
             openWorldHint: false
         }
     },
-    async ({ workspaceId, tableId, formulaName, expression, orgId }) => {
+    async ({ workspaceId, tableId, formulaName, expression }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
+            const orgId = requireOrgId();
             console.error(`[addAggregateFormula] Creating aggregate formula '${formulaName}' in table '${tableId}' of workspace '${workspaceId}'`);
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace) => {
-                const ac = getAnalyticsClient();
-                const viewInst = ac.getViewInstance(org_id, workspace, tableId);
-                console.error(`[addAggregateFormula] Calling ViewAPI.addAggregateFormula for formula: '${formulaName}', expression: '${expression}'`);
-                const formulaId = await viewInst.addAggregateFormula(formulaName, expression);
-                console.error(`[addAggregateFormula] Successfully created aggregate formula. Formula ID: ${formulaId}`);
-                return ToolResponse(`Aggregate formula '${formulaName}' created successfully. Formula ID: ${formulaId}`);
-            }, workspaceId);
+            const ac = getAnalyticsClient();
+            const viewInst = ac.getViewInstance(orgId, workspaceId, tableId);
+            console.error(`[addAggregateFormula] Calling ViewAPI.addAggregateFormula for formula: '${formulaName}', expression: '${expression}'`);
+            const formulaId = await viewInst.addAggregateFormula(formulaName, expression);
+            console.error(`[addAggregateFormula] Successfully created aggregate formula. Formula ID: ${formulaId}`);
+            return ToolResponse(`Aggregate formula '${formulaName}' created successfully. Formula ID: ${formulaId}`);
         } catch (err) {
-            return logAndReturnError(err, "An error occurred while creating the aggregate formula");
+            return logAndReturnError(err, "An error occurred while creating the aggregate formula", { workspaceId, viewId: tableId });
         }
     });
 
@@ -499,8 +82,9 @@ export function registerModellingTools(server: ServerInstance) {
     },
     async ({ workspaceName }) => {
         try {
+            const orgId = requireOrgId();
             const ac = getAnalyticsClient();
-            const org = ac.getOrgInstance(config.ORGID || "");
+            const org = ac.getOrgInstance(orgId);
             const configParam = {};
             const workspace_id = await org.createWorkspace(workspaceName, configParam);
             return ToolResponse(`Workspace '${workspaceName}' created successfully. Workspace Id: ${workspace_id}`);
@@ -530,7 +114,6 @@ export function registerModellingTools(server: ServerInstance) {
                 COLUMNNAME: z.string().describe("The name of the column"),
                 DATATYPE: z.enum(["PLAIN", "NUMBER", "DATE", "EMAIL", "CURRENCY", "URL", "POSITIVE_NUMBER", "DECIMAL_NUMBER"]).describe("The data type of the column")
             })).describe("A list of column definitions for the table"),
-            orgId: z.string().optional().describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided.")
         },
         annotations: {
           title: "Create Table",
@@ -540,23 +123,19 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspaceId, tableName, columnsArr, orgId }) => {
+    async ({ workspaceId, tableName, columnsArr }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, tableAlias, cols_arr) => {
-                const tableDesign = {
-                    TABLENAME: tableAlias,
-                    COLUMNS: cols_arr
-                };
-                const analyticsClient = getAnalyticsClient();
-                const workspaceInst = analyticsClient.getWorkspaceInstance(org_id || "", workspace);
-                const tableId = await workspaceInst.createTable(tableDesign);
-                return ToolResponse(`Table '${tableName}' created successfully. Table Id: ${tableId}`);
-            }, workspaceId, tableName, columnsArr);
+            const orgId = requireOrgId();
+            const tableDesign = {
+                TABLENAME: tableName,
+                COLUMNS: columnsArr
+            };
+            const analyticsClient = getAnalyticsClient();
+            const workspaceInst = analyticsClient.getWorkspaceInstance(orgId, workspaceId);
+            const tableId = await workspaceInst.createTable(tableDesign);
+            return ToolResponse(`Table '${tableName}' created successfully. Table Id: ${tableId}`);
         } catch (err) {
-            return logAndReturnError(err, "An error occurred while creating the table");
+            return logAndReturnError(err, "An error occurred while creating the table", { workspaceId });
         }
     });
 
@@ -617,42 +196,7 @@ export function registerModellingTools(server: ServerInstance) {
     4. Returns:
     - str: Chart creation status or error message.
     `,
-    inputSchema: {
-      workspaceId: z.string(),
-      tableName: z.string(),
-      chartName: z.string(),
-      chartDetails: z.object({
-          chartType: z.string().describe(
-              'Chart type, e.g. "bar", "line", "pie", "scatter", "bubble", "stacked bar", "funnel", "heat map", "sankey", and many more etc.'
-          ),
-          axisColumns: z.array(
-              z.object({
-                  type: z.enum(["xAxis", "yAxis", "colorAxis", "sizeAxis", "textAxis"]).describe(
-                      'Axis shelf: "xAxis", "yAxis", "colorAxis", "sizeAxis", or "textAxis"'
-                  ),
-                  columnName: z.string().describe("Name of the column"),
-                  operation: z.string().describe(
-                      'Operation for the column. String: actual/count/distinctCount. Number: measure/dimension/sum/average/min/max/count/distinctCount. Date: year/month/week/day/fullDate/dateTime/range/monthYear/quarterYear/weekYear/count/distinctCount'
-                  ),
-                  tableName: z.string().optional().describe(
-                      "If the column belongs to a related table, provide its name"
-                  ),
-              })
-          ).min(1).describe("List of axis column definitions"),
-      }),
-      filters: z
-        .array(
-          z.object({
-            tableName: z.string().optional(),
-            columnName: z.string(),
-            operation: z.string(),
-            filterType: z.string(),
-            values: z.array(z.string()),
-            exclude: z.boolean(),
-          })
-        )
-        .optional()
-     },
+    inputSchema: createChartReportSchema,
      annotations: {
        title: "Create Chart Report",
        readOnlyHint: false,
@@ -661,102 +205,7 @@ export function registerModellingTools(server: ServerInstance) {
        openWorldHint: false
      }
    },
-   async ({
-     workspaceId,
-     tableName,
-     chartName,
-     chartDetails,
-     filters,
-     }) => {
-     
-     try {
-        
-        const orgId = config.ORGID || "";
-        const { chartType, axisColumns } = chartDetails;
-
-         if (!chartType) {
-             return ToolResponse("Chart type is required. Please provide 'chartType' in chartDetails.");
-         }
-         if (!axisColumns || axisColumns.length === 0) {
-             return ToolResponse("At least one axis column must be provided in chartDetails.axisColumns.");
-         }
-
-         // Validate each axis column has required fields
-         for (let i = 0; i < axisColumns.length; i++) {
-             const col = axisColumns[i];
-             if (!col.columnName) {
-                 return ToolResponse(`axisColumns[${i}] is missing 'columnName'.`);
-             }
-             if (!col.operation) {
-                 return ToolResponse(`axisColumns[${i}] ('${col.columnName}') is missing 'operation'.`);
-             }
-             if (!col.type) {
-                 return ToolResponse(`axisColumns[${i}] ('${col.columnName}') is missing 'type'. Must be one of: xAxis, yAxis, colorAxis, sizeAxis, textAxis.`);
-             }
-         }
-
-         // Run compatibility validation
-         const validation = validateChartCompatibility(chartType, axisColumns);
-         if (!validation.valid) {
-             return ToolResponse(validation.error!);
-         }
-
-         // Build payload axisColumns
-         const payloadAxisColumns = axisColumns.map(col => {
-             const entry: Record<string, any> = {
-                 type: col.type == "sizeAxis" ? col.type.toLowerCase() : col.type,
-                 columnName: col.columnName,
-                 operation: col.operation,
-             };
-             if (col.tableName) entry.tableName = col.tableName;
-             return entry;
-         });
-
-         const conf: Record<string, any> = {
-             baseTableName: tableName,
-             title: chartName,
-             reportType: "chart",
-             chartType,
-             axisColumns: payloadAxisColumns,
-         };
-
-         if (filters) {
-             if (!Array.isArray(filters)) {
-                 return ToolResponse("Filters must be provided as an array of objects.");
-             }
-             for (const f of filters) {
-                 if (!("columnName" in f && "operation" in f && "filterType" in f && "values" in f && "exclude" in f)) {
-                     return ToolResponse("Each filter must contain 'columnName', 'operation', 'filterType', 'values', and 'exclude'.");
-                 }
-             }
-             conf.filters = filters;
-         }
-
-         return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace) => {
-             const ac = getAnalyticsClient();
-             const workspaceInst = ac.getWorkspaceInstance(org_id || "", workspace);
-             const reportId = await workspaceInst.createReport(conf);
-             return ToolResponse(`Chart report created successfully. Report ID: ${reportId}`);
-         }, workspaceId);
-
-    } catch (error: any) {
-        if ("errorMessage" in error && "errorCode" in error) {
-            const { errorMessage, errorCode } = error as { errorMessage: string; errorCode: number };
-            if (errorCode === 8166) {
-                const responseStr = dedent`
-                ${errorMessage}
-
-                Supported operations for columns of different types:
-                  String: actual, count, distinctCount
-                  Number: measure, dimension, sum, average, min, max, count, distinctCount
-                  Date: year, month, week, fullDate, dateTime, range, monthYear, quarterYear, weekYear, count, distinctCount
-                `.trim();
-                return ToolResponse(responseStr);
-            }
-        }
-        return logAndReturnError(error, "An error occurred while creating the chart report");
-    }
-  }
+   createChartReportHandler
     );
 
     server.registerTool("createSummaryReport",
@@ -789,7 +238,6 @@ export function registerModellingTools(server: ServerInstance) {
                 - operation (str): sum, average, count, min, max, etc.
                 - tableName (str): Need to be provided if the column belongs to another table with which a lookup is defined.
         - filters (list[dict] | None): Optional filters. See <filters_args> in createChartReport tool.
-        - orgId (str | None): The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.
         
             3.1. filter_args:
             - tableName (str): The name of the table containing the column to filter.
@@ -809,32 +257,7 @@ export function registerModellingTools(server: ServerInstance) {
         4.returns:
         - str: Chart creation status or error message.
         `,
-        inputSchema: {
-            workspaceId: z.string(),
-            tableName: z.string(),
-            reportName: z.string(),
-            summaryDetails: z.object({
-                groupBy: z.array(z.object({
-                    columnName: z.string(),
-                    tableName: z.string(),
-                    operation: z.string()
-                })).nonempty(),
-                aggregate: z.array(z.object({
-                    columnName: z.string(),
-                    operation: z.string(),
-                    tableName: z.string()
-                })).nonempty()
-            }),
-            filters: z.array(z.object({
-                tableName: z.string().optional(),
-                columnName: z.string(),
-                operation: z.string(),
-                filterType: z.string(),
-                values: z.array(z.string()),
-                exclude: z.boolean()
-            })).optional(),
-            orgId: z.string().optional()
-        },
+        inputSchema: createSummaryReportSchema,
         annotations: {
           title: "Create Summary Report",
           readOnlyHint: false,
@@ -843,53 +266,8 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspaceId, tableName, reportName, summaryDetails, filters, orgId }) => {
-        try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
-            if (!summaryDetails.groupBy || !summaryDetails.aggregate) {
-                return ToolResponse("Both 'groupBy' and 'aggregate' must be provided in summaryDetails.");
-            }
-            const axisColumns: any[] = [];
-            for (const gb of summaryDetails.groupBy) {
-                axisColumns.push({
-                    type: "groupBy",
-                    columnName: gb.columnName,
-                    operation: gb.operation,
-                    tableName: gb.tableName
-                });
-            }
-            for (const ag of summaryDetails.aggregate) {
-                if (ag.operation === "actual") {
-                    return ToolResponse("Invalid operation 'actual' in aggregate. Use 'sum', 'count', etc.");
-                }
-                axisColumns.push({
-                    type: "summarize",
-                    columnName: ag.columnName,
-                    operation: ag.operation,
-                    tableName: ag.tableName
-                });
-            }
-            const conf: any = {
-                baseTableName: tableName,
-                title: reportName,
-                reportType: "summary",
-                axisColumns
-            };
-            if (filters) {
-                conf.filters = filters;
-            }
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace) => {
-                const analyticsClient = getAnalyticsClient();
-                const workspaceInst = analyticsClient.getWorkspaceInstance(org_id || "", workspace);
-                const reportId = await workspaceInst.createReport(conf);
-                return ToolResponse(`Summary report created successfully. Report ID: ${reportId}`);
-            },workspaceId);
-        } catch (err) {
-            return logAndReturnError(err, "An error occurred while creating the summary report");
-        }
-    });
+    createSummaryReportHandler
+    );
 
     server.registerTool("createPivotReport",
     {
@@ -918,7 +296,6 @@ export function registerModellingTools(server: ServerInstance) {
         - column (optional(list[dict])): Same structure as row.
         - data (optional(list[dict])): same structure as row.
     - filters (list[dict] | None): Optional filters to restrict data scope. Filter definitions per <filters_args>.
-    - orgId (str | None): The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.
 
         3.1. filters_args:
         - tableName (str): The name of the table containing the column to filter.
@@ -935,37 +312,7 @@ export function registerModellingTools(server: ServerInstance) {
             - For ranking: "top 10", "bottom 5"
         - exclude (bool): Whether to exclude or include the filtered values. Default is False.
         `,
-        inputSchema: {
-        workspaceId: z.string(),
-        tableName: z.string(),
-        reportName: z.string(),
-        pivotDetails: z.object({
-            row: z.array(z.object({
-            columnName: z.string(),
-            tableName: z.string(),
-            operation: z.string()
-            })).optional(),
-            column: z.array(z.object({
-            columnName: z.string(),
-            tableName: z.string(),
-            operation: z.string()
-            })).optional(),
-            data: z.array(z.object({
-            columnName: z.string(),
-            tableName: z.string(),
-            operation: z.string()
-            })).optional()
-        }),
-        filters: z.array(z.object({
-            tableName: z.string().optional(),
-            columnName: z.string(),
-            operation: z.string(),
-            filterType: z.string(),
-            values: z.array(z.string()),
-            exclude: z.boolean()
-        })).optional(),
-        orgId: z.string().optional()
-        },
+        inputSchema: createPivotReportSchema,
         annotations: {
           title: "Create Pivot Report",
           readOnlyHint: false,
@@ -974,76 +321,13 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspaceId, tableName, reportName, pivotDetails, filters, orgId }) => {
-        try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
-            if (!pivotDetails) {
-                return ToolResponse("Pivot details must be provided.");
-            }
-            if (!pivotDetails.row && !pivotDetails.column && !pivotDetails.data) {
-                return ToolResponse("At least one of 'row', 'column', or 'data' must be provided in pivotDetails.");
-            }
-            const axisColumns: any[] = [];
-            const requiredKeys = ["columnName", "tableName", "operation"];
-            for (const [axisType, axisKey] of [["row", "row"], ["column", "column"], ["data", "data"]] as const) {
-                const axisList = (pivotDetails as any)[axisKey];
-                if (axisList) {
-                    if (!Array.isArray(axisList) || axisList.length === 0) {
-                        return ToolResponse(`${axisKey} must be a non-empty list of dictionaries with 'columnName', 'tableName', and 'operation'.`);
-                    }
-                    for (const entry of axisList) {
-                        if (!requiredKeys.every(k => k in entry)) {
-                            return ToolResponse(`Each entry in '${axisKey}' must contain 'columnName', 'tableName', and 'operation'.`);
-                        }
-                        const defaultOperation = (axisType === "row" || axisType === "column") ? "actual" : "count";
-                        axisColumns.push({
-                            type: axisType,
-                            columnName: entry.columnName,
-                            operation: entry.operation || defaultOperation,
-                            tableName: entry.tableName
-                        });
-                    }
-                }
-            }
-            const conf: any = {
-                baseTableName: tableName,
-                title: reportName,
-                reportType: "pivot",
-                axisColumns
-            };
-            if (filters) {
-                if (!Array.isArray(filters)) {
-                    return ToolResponse("Filters must be a list of dictionaries.");
-                }
-                for (const f of filters) {
-                    if (!["columnName", "operation", "filterType", "values", "exclude"].every(k => k in f)) {
-                        return ToolResponse("Each filter must contain 'columnName', 'operation', 'filterType', 'values', and 'exclude'.");
-                    }
-                }
-                conf.filters = filters;
-            }
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, bodyConf) => {
-                const analyticsClient = getAnalyticsClient();
-                const workspaceInst = analyticsClient.getWorkspaceInstance(org_id || "", workspace);
-                const reportId = await workspaceInst.createReport(bodyConf);
-                return ToolResponse(`Pivot report created successfully. Report ID: ${reportId}`);
-            }, workspaceId, conf);
-        } catch (err) {
-            return logAndReturnError(err, "An error occurred while creating the pivot report");
-        }
-    });
+    createPivotReportHandler
+    );
 
     server.registerTool("createQueryTable",
     {
         description: "Create a query table in the specified workspace with the given name and SQL query",
-        inputSchema: {
-        workspaceId: z.string().describe("The ID of the workspace in which to create the query table"),
-        tableName: z.string().describe("The name of the query table to create"),
-        query: z.string().describe("The SQL select query to create the query table"),
-        orgId: z.string().optional().describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided.")
-        },
+        inputSchema: createQueryTableSchema,
         annotations: {
           title: "Create Query Table",
           readOnlyHint: false,
@@ -1052,22 +336,33 @@ export function registerModellingTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspaceId, tableName, query, orgId }) => {
-        try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async(org_id, workspace, table, sql) => {
-                const analyticsClient = getAnalyticsClient();
-                const workspaceInst = analyticsClient.getWorkspaceInstance(org_id, workspace);
-                const configParam = {};
-                const tableId = await workspaceInst.createQueryTable(sql, table, configParam);
-                return ToolResponse(`Query table '${table}' created successfully. Table Id: ${tableId}`);
-            }, workspaceId, tableName, query);            
-        } catch (err) {
-            return logAndReturnError(err, "An error occurred while creating the query table");
+    createQueryTableHandler
+    );
+
+    server.registerTool("editQueryTable",
+    {
+        description: `
+    Edit the SQL query of an existing query table in the specified workspace.
+
+    Use Case:
+    - Use this when you need to update or modify the SQL query that defines a query table.
+
+    Important Notes:
+    - Only the SQL query can be modified via this tool (CONFIG: sqlQuery).
+    - The viewId must be the ID of the query table view (not a regular table or report).
+    - you can use the getQueryTableDetails tool to fetch the current details of the query table before editing it, if necessary.
+  `,
+        inputSchema: editQueryTableSchema,
+        annotations: {
+            title: "Edit Query Table",
+            readOnlyHint: false,
+            destructiveHint: true,
+            idempotentHint: true,
+            openWorldHint: false
         }
-    });
+    },
+    editQueryTableHandler
+    );
 
     server.registerTool("createLookup",
     {
@@ -1088,7 +383,6 @@ export function registerModellingTools(server: ServerInstance) {
             relationshipType: z.enum(["ONE_TO_ONE", "ONE_TO_MANY", "MANY_TO_MANY", "MANY_TO_ONE"]).describe(
                 "Nature of the relationship. MANY_TO_ONE will be automatically converted to ONE_TO_MANY by swapping source and target."
             ),
-            orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
         },
         annotations: {
             title: "Create Lookup",
@@ -1098,11 +392,9 @@ export function registerModellingTools(server: ServerInstance) {
             openWorldHint: false
         }
     },
-    async ({ workspaceId, sourceTableId, sourceColumnId, targetTableId, targetColumnId, relationshipType, orgId }) => {
+    async ({ workspaceId, sourceTableId, sourceColumnId, targetTableId, targetColumnId, relationshipType }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
+            const orgId = requireOrgId();
 
             // MANY_TO_ONE → swap source/target and use ONE_TO_MANY
             let effectiveRelationType = relationshipType;
@@ -1122,22 +414,20 @@ export function registerModellingTools(server: ServerInstance) {
 
             console.error(`[createLookup] Creating lookup: sourceTable=${effectiveSourceTableId}, sourceColumn=${effectiveSourceColumnId}, targetTable=${effectiveTargetTableId}, targetColumn=${effectiveTargetColumnId}, relationType=${effectiveRelationType}`);
 
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, srcTable, srcCol, tgtTable, tgtCol, relType) => {
-                const ac = getAnalyticsClient();
-                const viewInstance = ac.getViewInstance(org_id || "", workspace, srcTable);
-                const references = [
-                    {
-                        viewId: tgtTable,
-                        columnId: tgtCol,
-                        relationType: relType
-                    }
-                ];
-                await viewInstance.addLookupV2(srcCol, references, {});
-                console.error(`[createLookup] Lookup created successfully`);
-                return ToolResponse(
-                    `Lookup relationship created successfully. Source table: ${srcTable}, Source column: ${srcCol} → Target table: ${tgtTable}, Target column: ${tgtCol}, Relationship type: ${relType}`
-                );
-            }, workspaceId, effectiveSourceTableId, effectiveSourceColumnId, effectiveTargetTableId, effectiveTargetColumnId, effectiveRelationType);
+            const ac = getAnalyticsClient();
+            const viewInstance = ac.getViewInstance(orgId, workspaceId, effectiveSourceTableId);
+            const references = [
+                {
+                    viewId: effectiveTargetTableId,
+                    columnId: effectiveTargetColumnId,
+                    relationType: effectiveRelationType
+                }
+            ];
+            await viewInstance.addLookupV2(effectiveSourceColumnId, references, {});
+            console.error(`[createLookup] Lookup created successfully`);
+            return ToolResponse(
+                `Lookup relationship created successfully. Source table: ${effectiveSourceTableId}, Source column: ${effectiveSourceColumnId} → Target table: ${effectiveTargetTableId}, Target column: ${effectiveTargetColumnId}, Relationship type: ${effectiveRelationType}`
+            );
         } catch (err: any) {
             console.error("[createLookup] Error:", err);
             const errorCode = err?.errorCode;
@@ -1147,14 +437,14 @@ export function registerModellingTools(server: ServerInstance) {
                 // Add specific error code mappings here as needed
             };
 
-            if (errorCode !== undefined) {
+            if (errorCode !== undefined && !isOrgMismatchError(err)) {
                 const mappedMessage = errorCodeMessages[errorCode];
                 if (mappedMessage) {
                     return ToolResponse(`Error [${errorCode}]: ${mappedMessage}`);
                 }
                 return ToolResponse(`Error [${errorCode}]: ${errorMessage || "An unknown error occurred while creating the lookup"}`);
             }
-            return logAndReturnError(err, "An error occurred while creating the lookup");
+            return logAndReturnError(err, "An error occurred while creating the lookup", { workspaceId, viewId: sourceTableId });
         }
     });
 
@@ -1165,7 +455,6 @@ export function registerModellingTools(server: ServerInstance) {
             workspaceId: z.string().describe("The ID of the workspace containing the table"),
             viewId: z.string().describe("The ID of the view (table) from which to remove the lookup"),
             columnId: z.string().describe("The ID of the column whose lookup relationship should be removed"),
-            orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
         },
         annotations: {
             title: "Delete Lookup",
@@ -1175,30 +464,26 @@ export function registerModellingTools(server: ServerInstance) {
             openWorldHint: false
         }
     },
-    async ({ workspaceId, viewId, columnId, orgId }) => {
+    async ({ workspaceId, viewId, columnId }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
+            const orgId = requireOrgId();
 
             console.error(`[deleteLookup] Removing lookup: viewId=${viewId}, columnId=${columnId}`);
 
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, view, col) => {
-                const ac = getAnalyticsClient();
-                const viewInstance = ac.getViewInstance(org_id || "", workspace, view);
-                await viewInstance.removeLookup(col, {});
-                console.error(`[deleteLookup] Lookup removed successfully`);
-                return ToolResponse(`Lookup relationship for column ${col} in view ${view} removed successfully.`);
-            }, workspaceId, viewId, columnId);
+            const ac = getAnalyticsClient();
+            const viewInstance = ac.getViewInstance(orgId, workspaceId, viewId);
+            await viewInstance.removeLookup(columnId, {});
+            console.error(`[deleteLookup] Lookup removed successfully`);
+            return ToolResponse(`Lookup relationship for column ${columnId} in view ${viewId} removed successfully.`);
         } catch (err: any) {
             console.error("[deleteLookup] Error:", err);
             const errorCode = err?.errorCode;
             const errorMessage = err?.errorMessage;
 
-            if (errorCode !== undefined) {
+            if (errorCode !== undefined && !isOrgMismatchError(err)) {
                 return ToolResponse(`Error [${errorCode}]: ${errorMessage || "An unknown error occurred while removing the lookup"}`);
             }
-            return logAndReturnError(err, "An error occurred while removing the lookup");
+            return logAndReturnError(err, "An error occurred while removing the lookup", { workspaceId, viewId });
         }
     });
 
@@ -1212,7 +497,6 @@ export function registerModellingTools(server: ServerInstance) {
       inputSchema: {
         workspaceId: z.string(),
         viewId: z.string(),
-        orgId: z.string().nullable().optional(),
       },
       annotations: {
         title: "Delete View",
@@ -1222,19 +506,15 @@ export function registerModellingTools(server: ServerInstance) {
         openWorldHint: false
       }
     },
-    async ({ workspaceId, viewId, orgId }) => {
+    async ({ workspaceId, viewId }) => {
         try {
-            if (!orgId){
-                orgId = config.ORGID || "";
-            }
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, view) => {
-                const analyticsClient = getAnalyticsClient();
-                const viewInstance = analyticsClient.getViewInstance(org_id || "", workspace, view);
-                await viewInstance.delete();
-                return ToolResponse(`View with ID ${view} deleted successfully from workspace ${workspace}.`);
-            }, workspaceId, viewId);
+            const orgId = requireOrgId();
+            const analyticsClient = getAnalyticsClient();
+            const viewInstance = analyticsClient.getViewInstance(orgId, workspaceId, viewId);
+            await viewInstance.delete();
+            return ToolResponse(`View with ID ${viewId} deleted successfully from workspace ${workspaceId}.`);
         } catch (err) {
-            return logAndReturnError(err, "An error occurred while deleting the view");
+            return logAndReturnError(err, "An error occurred while deleting the view", { workspaceId, viewId });
         }
     }
   );
@@ -1279,7 +559,6 @@ export function registerModellingTools(server: ServerInstance) {
             - filterType (str): Type of filter. Accepted: individualValues, range, ranking, rankingPct, dateRange, year, quarterYear, monthYear, weekYear, quarter, month, week, weekDay, day, hour, dateTime
             - values (list): Values to filter on.
             - exclude (bool): Whether to exclude the matched values. Default is false.
-        - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
 
         4. Returns:
         - str: Update status or error message.
@@ -1313,7 +592,6 @@ export function registerModellingTools(server: ServerInstance) {
                 values: z.array(z.string()),
                 exclude: z.boolean()
             })).optional(),
-            orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
         },
         annotations: {
             title: "Update Pivot Report",
@@ -1323,11 +601,9 @@ export function registerModellingTools(server: ServerInstance) {
             openWorldHint: false
         }
     },
-    async ({ workspaceId, reportId, pivotDetails, title, filters, orgId }) => {
+    async ({ workspaceId, reportId, pivotDetails, title, filters }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
+            const orgId = requireOrgId();
 
             if (!pivotDetails) {
                 return ToolResponse("Pivot details must be provided.");
@@ -1383,15 +659,13 @@ export function registerModellingTools(server: ServerInstance) {
 
             console.error(`[updatePivot] Updating pivot report '${reportId}' in workspace '${workspaceId}'`);
 
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, report_id, bodyConf) => {
-                const ac = getAnalyticsClient();
-                const workspaceInst = ac.getWorkspaceInstance(org_id || "", workspace);
-                await workspaceInst.updateReport(report_id, bodyConf);
-                console.error(`[updatePivot] Successfully updated pivot report '${report_id}'`);
-                return ToolResponse(`Pivot report '${report_id}' updated successfully.`);
-            }, workspaceId, reportId, conf);
+            const ac = getAnalyticsClient();
+            const workspaceInst = ac.getWorkspaceInstance(orgId, workspaceId);
+            await workspaceInst.updateReport(reportId, conf);
+            console.error(`[updatePivot] Successfully updated pivot report '${reportId}'`);
+            return ToolResponse(`Pivot report '${reportId}' updated successfully.`);
         } catch (err) {
-            return logAndReturnError(err, "An error occurred while updating the pivot report");
+            return logAndReturnError(err, "An error occurred while updating the pivot report", { workspaceId, viewId: reportId });
         }
     });
 
@@ -1438,7 +712,6 @@ export function registerModellingTools(server: ServerInstance) {
             - filterType (str): Type of filter. Accepted: individualValues, range, ranking, rankingPct, dateRange, year, quarterYear, monthYear, weekYear, quarter, month, week, weekDay, day, hour, dateTime
             - values (list): Values to filter on.
             - exclude (bool): Whether to exclude the matched values. Default is false.
-        - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
 
         4. Returns:
         - str: Update status or error message.
@@ -1467,7 +740,6 @@ export function registerModellingTools(server: ServerInstance) {
                 values: z.array(z.string()),
                 exclude: z.boolean()
             })).optional(),
-            orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
         },
         annotations: {
             title: "Update Summary Report",
@@ -1477,11 +749,9 @@ export function registerModellingTools(server: ServerInstance) {
             openWorldHint: false
         }
     },
-    async ({ workspaceId, reportId, summaryDetails, title, filters, orgId }) => {
+    async ({ workspaceId, reportId, summaryDetails, title, filters }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
+            const orgId = requireOrgId();
 
             if (!summaryDetails.groupBy || !summaryDetails.aggregate) {
                 return ToolResponse("Both 'groupBy' and 'aggregate' must be provided in summaryDetails.");
@@ -1524,15 +794,13 @@ export function registerModellingTools(server: ServerInstance) {
 
             console.error(`[updateSummary] Updating summary report '${reportId}' in workspace '${workspaceId}'`);
 
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, report_id, bodyConf) => {
-                const ac = getAnalyticsClient();
-                const workspaceInst = ac.getWorkspaceInstance(org_id || "", workspace);
-                await workspaceInst.updateReport(report_id, bodyConf);
-                console.error(`[updateSummary] Successfully updated summary report '${report_id}'`);
-                return ToolResponse(`Summary report '${report_id}' updated successfully.`);
-            }, workspaceId, reportId, conf);
+            const ac = getAnalyticsClient();
+            const workspaceInst = ac.getWorkspaceInstance(orgId, workspaceId);
+            await workspaceInst.updateReport(reportId, conf);
+            console.error(`[updateSummary] Successfully updated summary report '${reportId}'`);
+            return ToolResponse(`Summary report '${reportId}' updated successfully.`);
         } catch (err) {
-            return logAndReturnError(err, "An error occurred while updating the summary report");
+            return logAndReturnError(err, "An error occurred while updating the summary report", { workspaceId, viewId: reportId });
         }
     });
 
@@ -1581,48 +849,11 @@ export function registerModellingTools(server: ServerInstance) {
             - filterType (str): Type of filter. Accepted: individualValues, range, ranking, rankingPct, dateRange, year, quarterYear, monthYear, weekYear, quarter, month, week, weekDay, day, hour, dateTime
             - values (list): Values to filter on.
             - exclude (bool): Whether to exclude the matched values. Default is false.
-        - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
 
         4. Returns:
         - str: Update status or error message.
         `,
-        inputSchema: {
-            workspaceId: z.string().describe("The ID of the workspace containing the chart report"),
-            reportId: z.string().describe("The ID of the chart report to update"),
-            chartDetails: z.object({
-                chartType: z.string().describe(
-                    'Chart type, e.g. "bar", "line", "pie", "scatter", "bubble", "stacked bar", "funnel", "heat map", "sankey", and many more etc.'
-                ),
-                axisColumns: z.array(
-                    z.object({
-                        type: z.enum(["xAxis", "yAxis", "colorAxis", "sizeAxis", "textAxis"]).describe(
-                            'Axis shelf: "xAxis", "yAxis", "colorAxis", "sizeAxis", or "textAxis"'
-                        ),
-                        columnName: z.string().describe("Name of the column"),
-                        operation: z.string().describe(
-                            'Operation for the column. String: actual/count/distinctCount. Number: measure/dimension/sum/average/min/max/count/distinctCount. Date: year/month/week/day/fullDate/dateTime/range/monthYear/quarterYear/weekYear/count/distinctCount'
-                        ),
-                        tableName: z.string().optional().describe(
-                            "If the column belongs to a related table, provide its name"
-                        ),
-                    })
-                ).min(1).describe("List of axis column definitions"),
-            }),
-            title: z.string().optional().describe("Optional. New title for the chart report. Omit to keep the existing title."),
-            filters: z
-                .array(
-                    z.object({
-                        tableName: z.string().optional(),
-                        columnName: z.string(),
-                        operation: z.string(),
-                        filterType: z.string(),
-                        values: z.array(z.string()),
-                        exclude: z.boolean(),
-                    })
-                )
-                .optional(),
-            orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
-        },
+        inputSchema: updateChartSchema,
         annotations: {
             title: "Update Chart Report",
             readOnlyHint: false,
@@ -1631,102 +862,7 @@ export function registerModellingTools(server: ServerInstance) {
             openWorldHint: false
         }
     },
-    async ({ workspaceId, reportId, chartDetails, title, filters, orgId }) => {
-        try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
-
-            const { chartType, axisColumns } = chartDetails;
-
-            if (!chartType) {
-                return ToolResponse("Chart type is required. Please provide 'chartType' in chartDetails.");
-            }
-            if (!axisColumns || axisColumns.length === 0) {
-                return ToolResponse("At least one axis column must be provided in chartDetails.axisColumns.");
-            }
-
-            // Validate each axis column has required fields
-            for (let i = 0; i < axisColumns.length; i++) {
-                const col = axisColumns[i];
-                if (!col.columnName) {
-                    return ToolResponse(`axisColumns[${i}] is missing 'columnName'.`);
-                }
-                if (!col.operation) {
-                    return ToolResponse(`axisColumns[${i}] ('${col.columnName}') is missing 'operation'.`);
-                }
-                if (!col.type) {
-                    return ToolResponse(`axisColumns[${i}] ('${col.columnName}') is missing 'type'. Must be one of: xAxis, yAxis, colorAxis, sizeAxis, textAxis.`);
-                }
-            }
-
-            // Run compatibility validation
-            const validation = validateChartCompatibility(chartType, axisColumns);
-            if (!validation.valid) {
-                return ToolResponse(validation.error!);
-            }
-
-            // Build payload axisColumns
-            const payloadAxisColumns = axisColumns.map(col => {
-                const entry: Record<string, any> = {
-                    type: col.type == "sizeAxis" ? col.type.toLowerCase() : col.type,
-                    columnName: col.columnName,
-                    operation: col.operation,
-                };
-                if (col.tableName) entry.tableName = col.tableName;
-                return entry;
-            });
-
-            const conf: Record<string, any> = {
-                reportType: "chart",
-                chartType,
-                axisColumns: payloadAxisColumns,
-            };
-
-            // title is optional in update - only include if provided
-            if (title) {
-                conf.title = title;
-            }
-
-            if (filters) {
-                if (!Array.isArray(filters)) {
-                    return ToolResponse("Filters must be provided as an array of objects.");
-                }
-                for (const f of filters) {
-                    if (!("columnName" in f && "operation" in f && "filterType" in f && "values" in f && "exclude" in f)) {
-                        return ToolResponse("Each filter must contain 'columnName', 'operation', 'filterType', 'values', and 'exclude'.");
-                    }
-                }
-                conf.filters = filters;
-            }
-
-            console.error(`[updateChart] Updating chart report '${reportId}' in workspace '${workspaceId}'`);
-
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, report_id, bodyConf) => {
-                const ac = getAnalyticsClient();
-                const workspaceInst = ac.getWorkspaceInstance(org_id || "", workspace);
-                await workspaceInst.updateReport(report_id, bodyConf);
-                console.error(`[updateChart] Successfully updated chart report '${report_id}'`);
-                return ToolResponse(`Chart report '${report_id}' updated successfully.`);
-            }, workspaceId, reportId, conf);
-        } catch (error: any) {
-            if ("errorMessage" in error && "errorCode" in error) {
-                const { errorMessage, errorCode } = error as { errorMessage: string; errorCode: number };
-                if (errorCode === 8166) {
-                    const responseStr = dedent`
-                    ${errorMessage}
-
-                    Supported operations for columns of different types:
-                      String: actual, count, distinctCount
-                      Number: measure, dimension, sum, average, min, max, count, distinctCount
-                      Date: year, month, week, fullDate, dateTime, range, monthYear, quarterYear, weekYear, count, distinctCount
-                    `.trim();
-                    return ToolResponse(responseStr);
-                }
-            }
-            return logAndReturnError(error, "An error occurred while updating the chart report");
-        }
-    }
+    updateChartHandler
     );
 }
 
