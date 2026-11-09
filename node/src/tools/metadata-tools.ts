@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ServerInstance } from "../common";
 import { getAnalyticsClient, config, stripProtocol } from '../utils/apiUtil';
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../utils/common";
+import { requireOrgId, ToolResponse, logAndReturnError } from "../utils/common";
 import dedent from "dedent";
 import * as dns from 'dns';
 import * as https from 'https';
@@ -10,6 +10,8 @@ import * as os from 'os';
 import * as net from 'net';
 import * as tls from 'tls';
 import { PRODUCT_NAME } from "../config/product";
+import { readReportMetadataSchema, readReportMetadataHandler } from "./handlers/reports";
+import { getQueryTableDetailsSchema, getQueryTableDetailsHandler } from "./handlers/query-tables";
 
 const dnsLookup = promisify(dns.lookup);
 const dnsResolve = promisify(dns.resolve);
@@ -29,30 +31,19 @@ function httpsGet(hostname: string, path = '/'): Promise<number> {
   });
 }
 
-const filterAndLimitWorkspaces = (workspaces: any[], filter: string | undefined, isOwned: boolean, limit: number) => {
+const filterWorkspaces = (workspaces: any[], filter: string | undefined) => {
   if (!workspaces || workspaces.length === 0) {
     return [];
   }
-  
-  let filtered = workspaces;
-  
-  // Apply filter if provided
-  if (filter) {
-    filtered = workspaces.filter(workspace => 
-      workspace.workspaceName.toLowerCase().includes(filter.toLowerCase())
-    );
+
+  if (!filter) {
+    return workspaces;
   }
-  
-  // Apply limit
-  if (filtered.length > limit) {
-    filtered = filtered.slice(0, limit);
-  }
-  
-  // Add owned flag to each workspace
-  return filtered.map(workspace => ({
-    ...workspace,
-    owned: isOwned
-  }));
+
+  const lowerFilter = filter.toLowerCase();
+  return workspaces.filter(workspace =>
+    (workspace.workspaceName ?? "").toLowerCase().includes(lowerFilter)
+  );
 };
 
 async function checkDns(hostname: string, label: string): Promise<CheckResult[]> {
@@ -435,6 +426,8 @@ function filterValidNumbers(input: number[], validNumbers: number[]): number[] {
   return input.filter(num => validSet.has(num));
 }
 
+const WORKSPACE_RESULTS_PAGE_SIZE = 20;
+
 export function registerMetaDataTools(server: ServerInstance) {
 
   server.registerTool("listAggregateFormulas",
@@ -462,7 +455,6 @@ export function registerMetaDataTools(server: ServerInstance) {
       workspaceId: z.string().describe("The ID of the workspace"),
       viewId: z.string().optional().describe("Optional. The ID of the view/table. If provided, fetches aggregate formulas for that specific view. If not provided, fetches for the entire workspace."),
       formulaNameContainsStr: z.string().optional().describe("Optional. If provided, filters and returns only those formulas whose names contain this string (case-insensitive)."),
-      orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
     },
     annotations: {
       title: "List Aggregate Formulas",
@@ -472,87 +464,80 @@ export function registerMetaDataTools(server: ServerInstance) {
       openWorldHint: false
     }
   },
-  async ({ workspaceId, viewId, formulaNameContainsStr, orgId }) => {
+  async ({ workspaceId, viewId, formulaNameContainsStr }) => {
     try {
-      if (!orgId) {
-        orgId = config.ORGID || "";
-      }
+      const orgId = requireOrgId();
 
-      return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace) => {
-        const ac = getAnalyticsClient();
-        let formulas: any[];
+    const ac = getAnalyticsClient();
+    let formulas: any[];
 
-        if (viewId) {
-          // Fetch aggregate formulas for a specific view/table
-          console.error(`[listAggregateFormulas] Fetching aggregate formulas for view '${viewId}' in workspace '${workspace}'`);
-          const viewInst = ac.getViewInstance(org_id, workspace, viewId);
-          formulas = await viewInst.getAggregateFormulas();
-        } else {
-          // Fetch aggregate formulas for the entire workspace
-          console.error(`[listAggregateFormulas] Fetching aggregate formulas for workspace '${workspace}'`);
-          const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
-          formulas = await workspaceInst.getAggregateFormulas();
-        }
+    if (viewId) {
+      // Fetch aggregate formulas for a specific view/table
+      console.error(`[listAggregateFormulas] Fetching aggregate formulas for view '${viewId}' in workspace '${workspaceId}'`);
+      const viewInst = ac.getViewInstance(orgId, workspaceId, viewId);
+      formulas = await viewInst.getAggregateFormulas();
+    } else {
+      // Fetch aggregate formulas for the entire workspace
+      console.error(`[listAggregateFormulas] Fetching aggregate formulas for workspace '${workspaceId}'`);
+      const workspaceInst = ac.getWorkspaceInstance(orgId, workspaceId);
+      formulas = await workspaceInst.getAggregateFormulas();
+    }
 
-        if (!formulas || formulas.length === 0) {
-          console.error(`[listAggregateFormulas] No aggregate formulas found`);
-          return ToolResponse("No aggregate formulas found.");
-        }
+    if (!formulas || formulas.length === 0) {
+      console.error(`[listAggregateFormulas] No aggregate formulas found`);
+      return ToolResponse("No aggregate formulas found.");
+    }
 
-        console.error(`[listAggregateFormulas] Retrieved ${formulas.length} aggregate formula(s) before filtering`);
+    console.error(`[listAggregateFormulas] Retrieved ${formulas.length} aggregate formula(s) before filtering`);
 
-        // Apply name filter if provided
-        if (formulaNameContainsStr && formulaNameContainsStr.trim() !== "") {
-          const filterStr = formulaNameContainsStr.toLowerCase();
-          formulas = formulas.filter((f: any) =>
-            f.formulaName && f.formulaName.toLowerCase().includes(filterStr)
-          );
-          console.error(`[listAggregateFormulas] ${formulas.length} formula(s) matched filter '${formulaNameContainsStr}'`);
-        }
+    // Apply name filter if provided
+    if (formulaNameContainsStr && formulaNameContainsStr.trim() !== "") {
+      const filterStr = formulaNameContainsStr.toLowerCase();
+      formulas = formulas.filter((f: any) =>
+        f.formulaName && f.formulaName.toLowerCase().includes(filterStr)
+      );
+      console.error(`[listAggregateFormulas] ${formulas.length} formula(s) matched filter '${formulaNameContainsStr}'`);
+    }
 
-        if (formulas.length === 0) {
-          return ToolResponse(`No aggregate formulas found matching '${formulaNameContainsStr}'.`);
-        }
+    if (formulas.length === 0) {
+      return ToolResponse(`No aggregate formulas found matching '${formulaNameContainsStr}'.`);
+    }
 
-        // Return only the relevant fields
-        const result = formulas.map((f: any) => ({
-          formulaId: f.formulaId,
-          formulaName: f.formulaName,
-          expression: f.expression,
-          description: f.description ?? "",
-          subType: f.subType,
-          tableName: f.tableName,
-        }));
+    // Return only the relevant fields
+    const result = formulas.map((f: any) => ({
+      formulaId: f.formulaId,
+      formulaName: f.formulaName,
+      expression: f.expression,
+      description: f.description ?? "",
+      subType: f.subType,
+      tableName: f.tableName,
+    }));
 
-        return ToolResponse(JSON.stringify(result));
-      }, workspaceId);
+    return ToolResponse(JSON.stringify(result));
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while fetching aggregate formulas");
+      return logAndReturnError(err, "An error occurred while fetching aggregate formulas", { workspaceId, viewId });
     }
   });
 
 
   server.registerTool("getWorkspacesList",
     {
-      description: `
+      description: dedent`
       <use_case>
-        1) Fetches the list of workspaces in the user's organization.
+        1) Fetches the list of workspaces in the organization configured for this server.
         2) Used in the scenario where the user needs to select a workspace for further operations.
+        3) Results are paginated. Use the optional pageNo parameter to fetch further pages.
       </use_case>
 
-      <important_notes>
-        1) Try to avoid setting includeSharedWorkspaces to True unless you specifically need to see shared workspaces.
-        2) If you don't find a workspace from the owned workspaces, try setting includeSharedWorkspaces to True to see if the workspace is shared with you.
-      </important_notes>
-
       <returns>
-        A list of dictionaries, each representing a workspace with its details.
+        A plain-text note stating the current page and total pages, followed by a JSON list of
+        dictionaries, each representing a workspace with its details.
         If an error occurs, returns an error message.
       </returns>
       `,
       inputSchema: {
-        includeSharedWorkspaces: z.boolean().describe("If True, includes shared workspaces in the list"),
-        containsStr: z.string().optional().describe("Optional string to filter workspaces with a contains criteria")
+        containsStr: z.string().optional().describe("Optional string to filter workspaces with a contains criteria"),
+        pageNo: z.number().int().min(1).optional().describe("Optional page number to fetch (starts at 1). Defaults to 1 if not provided.")
       },
       annotations: {
         title: "Get Workspaces List",
@@ -562,29 +547,42 @@ export function registerMetaDataTools(server: ServerInstance) {
         openWorldHint: false
       }
     },
-    async ({ includeSharedWorkspaces, containsStr }) => {
+    async ({ containsStr, pageNo }) => {
+      let orgId: string | undefined;
       try {
-        const MAX_WORKSPACES = 20;
-        var ac = getAnalyticsClient();
-        let allWorkspaces;
-        if (!includeSharedWorkspaces) {
-          const ownedWorkspaces = await ac.getOwnedWorkspaces();
-          const result = filterAndLimitWorkspaces(ownedWorkspaces, containsStr, true, MAX_WORKSPACES);
-          return ToolResponse(JSON.stringify(result));
-        } else {
-          const allWorkspaces = await ac.getWorkspaces();
-          const ownedWorkspaces = allWorkspaces.ownedWorkspaces || [];
-          const sharedWorkspaces = allWorkspaces.sharedWorkspaces || [];
-          const ownedResult = filterAndLimitWorkspaces(ownedWorkspaces, containsStr, true, MAX_WORKSPACES);
-          const remainingCapacity = MAX_WORKSPACES - ownedResult.length;
-          const sharedResult = filterAndLimitWorkspaces(sharedWorkspaces, containsStr, false, remainingCapacity);
-          const combinedResult = [...ownedResult, ...sharedResult];
-          return ToolResponse(JSON.stringify(combinedResult));
+        orgId = requireOrgId();
+        const ac = getAnalyticsClient();
+        const org = ac.getOrgInstance(orgId);
+        const workspaces = await org.getOrgWorkspaces();
+        const filtered = filterWorkspaces(workspaces, containsStr);
+
+        const totalItems = filtered.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / WORKSPACE_RESULTS_PAGE_SIZE));
+        const currentPage = pageNo ?? 1;
+
+        if (currentPage > totalPages) {
+          return ToolResponse(
+            `Page ${currentPage} does not exist. There are only ${totalPages} page(s) available ` +
+            `for ${totalItems} workspace(s). Please provide a pageNo between 1 and ${totalPages}.`
+          );
         }
+
+        const start = (currentPage - 1) * WORKSPACE_RESULTS_PAGE_SIZE;
+        const pageItems = filtered.slice(start, start + WORKSPACE_RESULTS_PAGE_SIZE);
+
+        let note = `This is page ${currentPage} out of ${totalPages} (showing ${pageItems.length} of ${totalItems} workspaces).`;
+        if (currentPage < totalPages) {
+          note += ` To check further, please provide the pageNo (for example, pageNo ${currentPage + 1} for the next page).`;
+        } else {
+          note += ` This is the last page.`;
+        }
+
+        return ToolResponse(`${note}\n\n${JSON.stringify(pageItems)}`);
       } catch (err) {
-        return logAndReturnError(err, "An error occurred while fetching workspaces");
+        return logAndReturnError(err, "An error occurred while fetching workspaces", { orgId });
       }
   });
+
 
   server.registerTool("getViewDetails",
   {
@@ -674,7 +672,6 @@ export function registerMetaDataTools(server: ServerInstance) {
       4 - Summary View: A view that provides a simple tabular summary of your data with aggregate functions applied
       6 - Query Table: A derived table created from a custom SQL query
       7 - Dashboard: A collection of visualizations and reports
-    - orgId: Organization ID. Defaults to config value if not provided.
 
     returns:
     - A JSON stringified array of views matching the criteria or an error message string.
@@ -684,7 +681,6 @@ export function registerMetaDataTools(server: ServerInstance) {
        naturalLanguageQuery: z.string().optional(),
        viewContainsStr: z.string().optional(),
        allowedViewTypesIds: z.array(z.number()).optional(),
-       orgId: z.string().nullable().optional(),
      },
     annotations: {
       title: "Search Views",
@@ -694,59 +690,56 @@ export function registerMetaDataTools(server: ServerInstance) {
       openWorldHint: false
     }
   },
-   async ({ workspaceId, naturalLanguageQuery, viewContainsStr, allowedViewTypesIds, orgId }) => {
+   async ({ workspaceId, naturalLanguageQuery, viewContainsStr, allowedViewTypesIds }) => {
      try {
-       if (!orgId) {
-         orgId = config.ORGID || "";
-       }
+       const orgId = requireOrgId();
 
-       return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, natLangQuery, view_str, allowed_view_types_ids) => {
-         if (
-           (view_str && view_str.trim() !== "") ||
-           !natLangQuery ||
-           natLangQuery.trim() === ""
-           ) {
-           const views = await getViews(org_id, workspace, allowed_view_types_ids ?? [0, 6], view_str, false);
-           return ToolResponse(typeof views === "string" ? views : JSON.stringify(views));
-         }
+     if (
+       (viewContainsStr && viewContainsStr.trim() !== "") ||
+       !naturalLanguageQuery ||
+       naturalLanguageQuery.trim() === ""
+       ) {
+       const views = await getViews(orgId, workspaceId, allowedViewTypesIds ?? [0, 6], viewContainsStr, false);
+       return ToolResponse(typeof views === "string" ? views : JSON.stringify(views));
+     }
 
-         // RAG search path
-         const initialViews = await getViews(org_id, workspace, allowed_view_types_ids ?? [0,6], undefined, true);
+     // RAG search path
+     const initialViews = await getViews(orgId, workspaceId, allowedViewTypesIds ?? [0,6], undefined, true);
 
-        if (typeof initialViews === "string" || !Array.isArray(initialViews) || initialViews.length === 0) {
-          return ToolResponse("No views found in the workspace.");
-        }
+    if (typeof initialViews === "string" || !Array.isArray(initialViews) || initialViews.length === 0) {
+      return ToolResponse("No views found in the workspace.");
+    }
 
 
-        const viewIdToDetails: Record<string, View> = {};
-        const transformedViewList: View[] = [];
+    const viewIdToDetails: Record<string, View> = {};
+    const transformedViewList: View[] = [];
 
-        initialViews.forEach((view) => {
-          const filteredView: View = {
-            viewId: view.viewId,
-            viewName: view.viewName,
-            viewDesc: view.viewDesc ?? "",
-          };
-          transformedViewList.push(filteredView);
-          viewIdToDetails[view.viewId] = filteredView;
-        });
+    initialViews.forEach((view) => {
+      const filteredView: View = {
+        viewId: view.viewId,
+        viewName: view.viewName,
+        viewDesc: view.viewDesc ?? "",
+      };
+      transformedViewList.push(filteredView);
+      viewIdToDetails[view.viewId] = filteredView;
+    });
 
-        let currentViewList = transformedViewList;
-        const batchSize = 15;
-        const maxEpochs = 5;
-        let epoch = 1;
-        let sampleSupported = true;
+    let currentViewList = transformedViewList;
+    const batchSize = 15;
+    const maxEpochs = 5;
+    let epoch = 1;
+    let sampleSupported = true;
 
-      while (currentViewList.length > 15 && epoch <= maxEpochs && sampleSupported) {
-        console.error(`Starting Epoch ${epoch} with ${currentViewList.length} views`);
+  while (currentViewList.length > 15 && epoch <= maxEpochs && sampleSupported) {
+    console.error(`Starting Epoch ${epoch} with ${currentViewList.length} views`);
 
-        const filteredViewList: View[] = [];
-        const numberOfBatches = Math.ceil(currentViewList.length / batchSize);
+    const filteredViewList: View[] = [];
+    const numberOfBatches = Math.ceil(currentViewList.length / batchSize);
 
-        for (let batchNumber = 0; batchNumber < numberOfBatches; batchNumber++) {
-          const viewsInBatch = currentViewList.slice(batchNumber * batchSize, (batchNumber + 1) * batchSize);
+    for (let batchNumber = 0; batchNumber < numberOfBatches; batchNumber++) {
+      const viewsInBatch = currentViewList.slice(batchNumber * batchSize, (batchNumber + 1) * batchSize);
 
-          const prompt = `
+      const prompt = `
 You are an expert at identifying and ranking relevant views (tables, reports, dashboards) based on natural language queries.
 
 EPOCH ${epoch} - BATCH ${batchNumber + 1}/${numberOfBatches}
@@ -758,7 +751,7 @@ Your task: Analyze the following views and rank them by relevance to the query. 
 Views in this batch:
 ${JSON.stringify(viewsInBatch)}
 
-Natural language query: \`${natLangQuery}\`
+Natural language query: \`${naturalLanguageQuery}\`
 
 Instructions:
 1. Rank ALL views in this batch by relevance to the query
@@ -771,75 +764,74 @@ Strictly provide your output in the following JSON format:
 {"relevant_views":[<list-of-top-5-view-ids-in-order-of-relevance>]}
 `;
 
-          try {
-            const response = await server.server.createMessage({
-              messages: [
-                {
-                  role: "user",
-                  content: {
-                    type: "text",
-                    text: prompt,
-                  },
-                },
-              ],
-              maxTokens: 500,
-            });
+      try {
+        const response = await server.server.createMessage({
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: prompt,
+              },
+            },
+          ],
+          maxTokens: 500,
+        });
 
-            if (response.content.type !== "text") {
-              return ToolResponse("Error in processing the RAG response. Please try again.");
-            }
-
-            console.error(
-              JSON.stringify(
-                {
-                  epoch,
-                  batch: batchNumber + 1,
-                  prompt,
-                  response: response.text,
-                },
-                null,
-                2
-              )
-            );
-
-            const responseJson = JSON.parse(response.content.text);
-            if (Array.isArray(responseJson.relevant_views)) {
-              responseJson.relevant_views.forEach((viewId: string) => {
-                if (viewIdToDetails[viewId]) {
-                  filteredViewList.push(viewIdToDetails[viewId]);
-                }
-              });
-            }
-          } catch (e) {
-            console.error(`Error during sampling: ${(e as Error).message || e}`);
-            if (batchNumber === 0 && epoch === 1) {
-              console.error("Sampling is not supported in this environment");
-              sampleSupported = false;
-              break;
-            }
-            break;
-          }
+        if (response.content.type !== "text") {
+          return ToolResponse("Error in processing the RAG response. Please try again.");
         }
 
-        if (!sampleSupported) {
+        console.error(
+          JSON.stringify(
+            {
+              epoch,
+              batch: batchNumber + 1,
+              prompt,
+              response: response.text,
+            },
+            null,
+            2
+          )
+        );
+
+        const responseJson = JSON.parse(response.content.text);
+        if (Array.isArray(responseJson.relevant_views)) {
+          responseJson.relevant_views.forEach((viewId: string) => {
+            if (viewIdToDetails[viewId]) {
+              filteredViewList.push(viewIdToDetails[viewId]);
+            }
+          });
+        }
+      } catch (e) {
+        console.error(`Error during sampling: ${(e as Error).message || e}`);
+        if (batchNumber === 0 && epoch === 1) {
+          console.error("Sampling is not supported in this environment");
+          sampleSupported = false;
           break;
         }
-
-        console.error(`Epoch ${epoch} completed. Reduced from ${currentViewList.length} to ${filteredViewList.length} views`);
-        currentViewList = filteredViewList;
-        epoch++;
+        break;
       }
+    }
 
-      if (!sampleSupported) {
-        console.error("Using fallback mechanism: Returning first 20 views from the workspace");
-        return ToolResponse(JSON.stringify(transformedViewList.slice(0, 20)));
-      }
+    if (!sampleSupported) {
+      break;
+    }
 
-      console.error(`Final result: ${currentViewList.length} views after ${epoch - 1} epochs`);
-        return ToolResponse(JSON.stringify(currentViewList));
-        }, workspaceId, naturalLanguageQuery, viewContainsStr, allowedViewTypesIds);
+    console.error(`Epoch ${epoch} completed. Reduced from ${currentViewList.length} to ${filteredViewList.length} views`);
+    currentViewList = filteredViewList;
+    epoch++;
+  }
+
+  if (!sampleSupported) {
+    console.error("Using fallback mechanism: Returning first 20 views from the workspace");
+    return ToolResponse(JSON.stringify(transformedViewList.slice(0, 20)));
+  }
+
+  console.error(`Final result: ${currentViewList.length} views after ${epoch - 1} epochs`);
+    return ToolResponse(JSON.stringify(currentViewList));
     } catch (error) {
-      return logAndReturnError(error, `Error in searchViews: ${(error as Error).message || error}`);
+      return logAndReturnError(error, `Error in searchViews: ${(error as Error).message || error}`, { workspaceId });
     }
   });
 
@@ -944,18 +936,11 @@ Strictly provide your output in the following JSON format:
     3. Arguments:
     - workspaceId (str): The ID of the workspace containing the report.
     - reportId (str): The ID of the report whose metadata should be retrieved.
-    - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
 
     4. Returns:
     - A JSON string containing the report metadata, or an error message.
     `,
-
-
-    inputSchema: {
-      workspaceId: z.string().describe("The ID of the workspace containing the report"),
-      reportId: z.string().describe("The ID of the report whose metadata to retrieve"),
-      orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided.")
-    },
+    inputSchema: readReportMetadataSchema,
     annotations: {
       title: "Read Report Metadata",
       readOnlyHint: true,
@@ -964,25 +949,30 @@ Strictly provide your output in the following JSON format:
       openWorldHint: false
     }
   },
-  async ({ workspaceId, reportId, orgId }) => {
-    try {
-      if (!orgId) {
-        orgId = config.ORGID || "";
-      }
+  readReportMetadataHandler
+  );
 
-      console.error(`[readReportMetadata] Fetching metadata for report '${reportId}' in workspace '${workspaceId}'`);
+  server.registerTool("getQueryTableDetails",
+  {
+    description: `
+    Use Case:
+    - Fetches the details of a specific query table in a workspace, including its SQL query and column structure.
+    - Use this when you need to inspect or review an existing query table before making changes.
 
-      return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace) => {
-        const ac = getAnalyticsClient();
-        const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
-        const metadata = await workspaceInst.getReportMetadata(reportId);
-        console.error(`[readReportMetadata] Successfully retrieved metadata for report '${reportId}'`);
-        return ToolResponse(JSON.stringify(metadata, null, 2));
-      }, workspaceId);
-    } catch (err) {
-      return logAndReturnError(err, "An error occurred while retrieving the report metadata");
+    Important Notes:
+    - The queryTableId must be the view id of a query table view (viewType: 6), not a regular table or report.
+
+  `,
+    inputSchema: getQueryTableDetailsSchema,
+    annotations: {
+      title: "Get Query Table Details",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
     }
-  });
+  },
+  getQueryTableDetailsHandler
+  );
 
 }
-

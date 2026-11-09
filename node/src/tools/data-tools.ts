@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ServerInstance } from "../common";
-import {getAnalyticsClient, config } from '../utils/apiUtil';
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../utils/common";
+import { getAnalyticsClient } from '../utils/apiUtil';
+import { requireOrgId, ToolResponse, logAndReturnError } from "../utils/common";
 import dedent from "dedent";
 import path from "path";
 import fs from "fs";
@@ -50,7 +50,6 @@ export function registerDataTools(server: ServerInstance) {
         inputSchema: {
             workspaceId: z.string().describe("The ID of the workspace where the query will be executed"),
             sqlQuery: z.string().describe("The SQL query to be executed"),
-            orgId: z.string().optional().describe("The organization ID for the request, if applicable. This is a mandatory parameter for shared workspaces")
         },
         annotations: {
           title: "Query Data",
@@ -60,96 +59,92 @@ export function registerDataTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspaceId, sqlQuery, orgId }) => {
+    async ({ workspaceId, sqlQuery }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
+            const orgId = requireOrgId();
             try {
                 sqlQuery = enforceLimit(sqlQuery, QUERY_DATA_ROW_LIMIT);
                 console.error(`[queryData] SQL after limit enforcement: ${sqlQuery}`);
             } catch (limitErr) {
                 console.error(`[queryData] enforceLimit failed, proceeding with original query. Reason: ${limitErr}`);
             }
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async(org_id, workspace, sql) => {
-                const analyticsClient = getAnalyticsClient();
-                const bulk = analyticsClient.getBulkInstance(org_id, workspace);
+            const analyticsClient = getAnalyticsClient();
+            const bulk = analyticsClient.getBulkInstance(orgId, workspaceId);
 
-                const jobId = await bulk.initiateBulkExportUsingSQL(sql, "CSV");
-                console.error(`[queryData] Bulk export job initiated | jobId=${jobId}`);
+            const jobId = await bulk.initiateBulkExportUsingSQL(sqlQuery, "CSV");
+            console.error(`[queryData] Bulk export job initiated | jobId=${jobId}`);
 
-                const statusMessages: Record<string, string> = {
-                    error: "Some internal error occurred (Not likely due to the query). Please try again later.",
-                    queue_timeout: "Query Job accepted, but queue processing is slow. Please try again later.",
-                    execution_timeout: "Query is taking too long to execute, maybe due to the complexity. Please try a simpler query"
-                };
+            const statusMessages: Record<string, string> = {
+                error: "Some internal error occurred (Not likely due to the query). Please try again later.",
+                queue_timeout: "Query Job accepted, but queue processing is slow. Please try again later.",
+                execution_timeout: "Query is taking too long to execute, maybe due to the complexity. Please try a simpler query"
+            };
 
-                const errorMessage = await pollJobCompletion(
-                    bulk,
-                    jobId,
-                    statusMessages,
-                    QUERY_DATA_POLLING_INTERVAL,
-                    QUERY_DATA_QUEUE_TIMEOUT,
-                    QUERY_DATA_QUERY_EXECUTION_TIMEOUT
+            const errorMessage = await pollJobCompletion(
+                bulk,
+                jobId,
+                statusMessages,
+                QUERY_DATA_POLLING_INTERVAL,
+                QUERY_DATA_QUEUE_TIMEOUT,
+                QUERY_DATA_QUERY_EXECUTION_TIMEOUT
+            );
+
+            if (errorMessage) {
+                throw new Error(errorMessage);
+            }
+
+            const allowedFileRoot = process.env.ALLOWED_FILE_ROOT;
+            if (!allowedFileRoot) {
+                throw new Error(
+                    "The ALLOWED_FILE_ROOT environment variable is not configured. " +
+                    "It is required for the queryData tool to work properly. " +
+                    "Please set ALLOWED_FILE_ROOT to a writable directory."
                 );
+            }
+            const tempDir = path.join(allowedFileRoot, "job_exports");
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+            }
+            const tmpFilePath = path.join(tempDir, `${jobId}.csv`);
+            await bulk.exportBulkData(jobId, tmpFilePath);
 
-                if (errorMessage) {
-                    throw new Error(errorMessage);
-                }
-
-                const allowedFileRoot = process.env.ALLOWED_FILE_ROOT;
-                if (!allowedFileRoot) {
-                    throw new Error(
-                        "The ALLOWED_FILE_ROOT environment variable is not configured. " +
-                        "It is required for the queryData tool to work properly. " +
-                        "Please set ALLOWED_FILE_ROOT to a writable directory."
-                    );
-                }
-                const tempDir = path.join(allowedFileRoot, "job_exports");
-                if (!fs.existsSync(tempDir)) {
-                    fs.mkdirSync(tempDir, { recursive: true });
-                }
-                const tmpFilePath = path.join(tempDir, `${jobId}.csv`);
-                await bulk.exportBulkData(jobId, tmpFilePath);
-
-                let csvData: string;
+            let csvData: string;
+            try {
+                csvData = fs.readFileSync(tmpFilePath, 'utf8');
+            } finally {
                 try {
-                    csvData = fs.readFileSync(tmpFilePath, 'utf8');
-                } finally {
-                    try {
-                        if (fs.existsSync(tmpFilePath)) {
-                            fs.unlinkSync(tmpFilePath);
-                        }
-                    } catch (cleanupErr) {
-                        console.error(`Failed to delete temp file ${tmpFilePath}:`, cleanupErr);
+                    if (fs.existsSync(tmpFilePath)) {
+                        fs.unlinkSync(tmpFilePath);
                     }
+                } catch (cleanupErr) {
+                    console.error(`Failed to delete temp file ${tmpFilePath}:`, cleanupErr);
                 }
+            }
 
-                const rows: string[][] = csvData
-                    .trim()
-                    .split('\n')
-                    .map((line: string) => line.split(','));
+            const rows: string[][] = csvData
+                .trim()
+                .split('\n')
+                .map((line: string) => line.split(','));
 
-                const columns: string[] = rows.shift() || [];
-                const limitedRows: string[][] = rows.slice(0, QUERY_DATA_ROW_LIMIT);
-                console.error(`[queryData] Parsed CSV | totalRows=${rows.length} | returnedRows=${limitedRows.length} | columns=${columns.length} | rowLimitHit=${limitedRows.length >= QUERY_DATA_ROW_LIMIT}`);
+            const columns: string[] = rows.shift() || [];
+            const limitedRows: string[][] = rows.slice(0, QUERY_DATA_ROW_LIMIT);
+            console.error(`[queryData] Parsed CSV | totalRows=${rows.length} | returnedRows=${limitedRows.length} | columns=${columns.length} | rowLimitHit=${limitedRows.length >= QUERY_DATA_ROW_LIMIT}`);
 
-                let responseMessage = `Query executed successfully. Retrieved ${limitedRows.length} rows.\n${JSON.stringify({ columns, rows: limitedRows })}`;
-                if (limitedRows.length >= QUERY_DATA_ROW_LIMIT) {
-                    responseMessage = (
-                        `Here are the top ${QUERY_DATA_ROW_LIMIT} rows for the given query (including the header row). ` +
-                        `It is possible (not confirmed) that there could be more rows this SELECT query could have produced. ` +
-                        `If you need more rows, adjust the OFFSET in the SELECT query. ` +
-                        `Note that the LIMIT cannot be increased beyond ${QUERY_DATA_ROW_LIMIT} due to system constraints.\n\n` +
-                        JSON.stringify({ columns, rows: limitedRows })
-                    );
-                }
+            let responseMessage = `Query executed successfully. Retrieved ${limitedRows.length} rows.\n${JSON.stringify({ columns, rows: limitedRows })}`;
+            if (limitedRows.length >= QUERY_DATA_ROW_LIMIT) {
+                responseMessage = (
+                    `Here are the top ${QUERY_DATA_ROW_LIMIT} rows for the given query (including the header row). ` +
+                    `It is possible (not confirmed) that there could be more rows this SELECT query could have produced. ` +
+                    `If you need more rows, adjust the OFFSET in the SELECT query. ` +
+                    `Note that the LIMIT cannot be increased beyond ${QUERY_DATA_ROW_LIMIT} due to system constraints.\n\n` +
+                    JSON.stringify({ columns, rows: limitedRows })
+                );
+            }
 
-                return ToolResponse(responseMessage);
-            }, workspaceId, sqlQuery);
+            return ToolResponse(responseMessage);
         } catch (err) {
-            console.error(`[queryData] Unhandled error | workspaceId=${workspaceId} | orgId=${orgId} | error=${err}`);
-            return logAndReturnError(err, "An error occurred while executing the query");
+            console.error(`[queryData] Unhandled error | workspaceId=${workspaceId} | error=${err}`);
+            return logAndReturnError(err, "An error occurred while executing the query", { workspaceId });
         }
     });
 
@@ -168,7 +163,6 @@ export function registerDataTools(server: ServerInstance) {
             viewId: z.string().describe(`The ID of the ${PRODUCT_NAME} view to be exported. This can be a table, chart, or dashboard`),
             responseFileFormat: z.enum(["csv", "html", "pdf", "json", "xml", "xls", "image"]).describe('The format in which to export the objects. Supported formats are ["csv","json","xml","xls","pdf","html","image"].'),
             responseFileName: z.string().describe("The name of the exported file without extension (e.g. \"sales_report\"). The file will be saved under the configured exports directory with the extension derived from responseFileFormat. Do not include path separators or directory components."),
-            orgId: z.string().optional().describe("The ID of the organization to which the workspace belongs to. If not provided, it defaults to the organization ID from the configuration.")
         },
         annotations: {
           title: "Export View",
@@ -178,11 +172,9 @@ export function registerDataTools(server: ServerInstance) {
           openWorldHint: false
         }
     },
-    async ({ workspaceId, viewId, responseFileFormat, responseFileName, orgId }) => {
+    async ({ workspaceId, viewId, responseFileFormat, responseFileName }) => {
         try {
-            if (!orgId) {
-                orgId = config.ORGID || "";
-            }
+            const orgId = requireOrgId();
 
             const allowedFileRoot = process.env.ALLOWED_FILE_ROOT;
             if (!allowedFileRoot) {
@@ -211,86 +203,47 @@ export function registerDataTools(server: ServerInstance) {
             const exportsDir = path.join(path.resolve(allowedFileRoot), "exports");
             fs.mkdirSync(exportsDir, { recursive: true });
 
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, view, response_format, fileName)=> {
-                const supportedFormats = ["csv", "json", "xml", "xls", "pdf", "html", "image"];
-                if (!supportedFormats.includes(response_format)) {
-                    return ToolResponse(
-                        `Invalid response file format. Supported formats are ${JSON.stringify(supportedFormats)}.`
-                    );
-                }
+            const supportedFormats = ["csv", "json", "xml", "xls", "pdf", "html", "image"];
+            if (!supportedFormats.includes(responseFileFormat)) {
+                return ToolResponse(
+                    `Invalid response file format. Supported formats are ${JSON.stringify(supportedFormats)}.`
+                );
+            }
 
-                const formatExtensionMap: Record<string, string> = {
-                    csv: "csv", html: "html", pdf: "pdf", json: "json",
-                    xml: "xml", xls: "xls", image: "png"
-                };
-                let extension = formatExtensionMap[response_format] || response_format;
+            const formatExtensionMap: Record<string, string> = {
+                csv: "csv", html: "html", pdf: "pdf", json: "json",
+                xml: "xml", xls: "xls", image: "png"
+            };
+            let extension = formatExtensionMap[responseFileFormat] || responseFileFormat;
 
-                interface ViewDetails {
-                    viewType: string;
-                    isTabbedDashboard?: boolean;
-                }
-                const analyticsClient = getAnalyticsClient();
-                let viewDetails: ViewDetails = await analyticsClient.getViewDetails(viewId, { withInvolvedMetaInfo: true }) as ViewDetails;
-                if (viewDetails.viewType === "Dashboard" && viewDetails.isTabbedDashboard) {
-                    extension = "zip";
-                }
+            interface ViewDetails {
+                viewType: string;
+                isTabbedDashboard?: boolean;
+            }
+            const analyticsClient = getAnalyticsClient();
+            let viewDetails: ViewDetails = await analyticsClient.getViewDetails(viewId, { withInvolvedMetaInfo: true }) as ViewDetails;
+            if (viewDetails.viewType === "Dashboard" && viewDetails.isTabbedDashboard) {
+                extension = "zip";
+            }
 
-                const bulk = analyticsClient.getBulkInstance(org_id || "", workspace);
-                const fullPath = path.join(exportsDir, `${fileName}.${extension}`);
+            const bulk = analyticsClient.getBulkInstance(orgId, workspaceId);
+            const fullPath = path.join(exportsDir, `${sanitizedFileName}.${extension}`);
 
-                try {
-                    await bulk.exportData(view, response_format, fullPath);
-                } catch (e: any) {
-                    if (e?.errorCode === 8133) {
-                        // errorCode=8133 indicates synchronous export is blocked.
-                        // This can happen for:
-                        // - Tables with > 1M rows
-                        // - Dashboards / Querytable view types
-                        // In these cases, fall back to bulk export.
+            try {
+                await bulk.exportData(viewId, responseFileFormat, fullPath);
+            } catch (e: any) {
+                if (e?.errorCode === 8133) {
+                    // errorCode=8133 indicates synchronous export is blocked.
+                    // This can happen for:
+                    // - Tables with > 1M rows
+                    // - Dashboards / Querytable view types
+                    // In these cases, fall back to bulk export.
 
-                        const viewType = (viewDetails?.viewType || "").toLowerCase();
+                    const viewType = (viewDetails?.viewType || "").toLowerCase();
 
-                        // For dashboards, bulk export only supports PDF. Ignore any provided format and default to pdf.
-                        if (viewType === "dashboard") {
-                            const jobId = await bulk.initiateBulkExport(view, "pdf", { dashboardLayout: 1 });
-                            const statusMessages: Record<string, string> = {
-                                error: "Some internal error ocurred. Please try again later.",
-                                queue_timeout: "Dashboard export Job accepted, but queue processing is slow. Please try again later.",
-                                execution_timeout: "Dashboard is taking too long to export, maybe due to the complexity. Please try again later."
-                            };
-                            const errorMessage = await pollJobCompletion(bulk, jobId, statusMessages);
-                            if (errorMessage) {
-                                return ToolResponse(errorMessage);
-                            }
-
-                            await bulk.exportBulkData(jobId, fullPath);
-                            return ToolResponse(
-                                `Object exported successfully to ${fullPath} in pdf format.`
-                            );
-                        }
-
-                        // For tables, do NOT enforce pdf. Use the caller-provided response_format.
-                        if (viewType === "table") {
-                            const jobId = await bulk.initiateBulkExport(view, response_format);
-                            const statusMessages: Record<string, string> = {
-                                error: "Some internal error ocurred. Please try again later.",
-                                queue_timeout: "Table export job accepted, but queue processing is slow. Please try again later.",
-                                execution_timeout: "Table is taking too long to export. Please try again later."
-                            };
-                            const errorMessage = await pollJobCompletion(bulk, jobId, statusMessages);
-                            if (errorMessage) {
-                                return ToolResponse(errorMessage);
-                            }
-
-                            await bulk.exportBulkData(jobId, fullPath);
-                            return ToolResponse(
-                                `Object exported successfully to ${fullPath} in ${response_format} format.`
-                            );
-                        }
-
-                        // For other view types (Chart/QueryTable/etc.), keep existing behavior: try bulk export with
-                        // the requested format (if supported). If this fails, surface the error.
-                        const jobId = await bulk.initiateBulkExport(view, response_format);
+                    // For dashboards, bulk export only supports PDF. Ignore any provided format and default to pdf.
+                    if (viewType === "dashboard") {
+                        const jobId = await bulk.initiateBulkExport(viewId, "pdf", { dashboardLayout: 1 });
                         const statusMessages: Record<string, string> = {
                             error: "Some internal error ocurred. Please try again later.",
                             queue_timeout: "Dashboard export Job accepted, but queue processing is slow. Please try again later.",
@@ -302,17 +255,54 @@ export function registerDataTools(server: ServerInstance) {
                         }
 
                         await bulk.exportBulkData(jobId, fullPath);
-                    } else {
-                        throw e;
+                        return ToolResponse(
+                            `Object exported successfully to ${fullPath} in pdf format.`
+                        );
                     }
-                }
 
-                return ToolResponse(
-                    `Object exported successfully to ${fullPath} in ${response_format} format.`
-                );
-            }, workspaceId, viewId, responseFileFormat, sanitizedFileName);
+                    // For tables, do NOT enforce pdf. Use the caller-provided response_format.
+                    if (viewType === "table") {
+                        const jobId = await bulk.initiateBulkExport(viewId, responseFileFormat);
+                        const statusMessages: Record<string, string> = {
+                            error: "Some internal error ocurred. Please try again later.",
+                            queue_timeout: "Table export job accepted, but queue processing is slow. Please try again later.",
+                            execution_timeout: "Table is taking too long to export. Please try again later."
+                        };
+                        const errorMessage = await pollJobCompletion(bulk, jobId, statusMessages);
+                        if (errorMessage) {
+                            return ToolResponse(errorMessage);
+                        }
+
+                        await bulk.exportBulkData(jobId, fullPath);
+                        return ToolResponse(
+                            `Object exported successfully to ${fullPath} in ${responseFileFormat} format.`
+                        );
+                    }
+
+                    // For other view types (Chart/QueryTable/etc.), keep existing behavior: try bulk export with
+                    // the requested format (if supported). If this fails, surface the error.
+                    const jobId = await bulk.initiateBulkExport(viewId, responseFileFormat);
+                    const statusMessages: Record<string, string> = {
+                        error: "Some internal error ocurred. Please try again later.",
+                        queue_timeout: "Dashboard export Job accepted, but queue processing is slow. Please try again later.",
+                        execution_timeout: "Dashboard is taking too long to export, maybe due to the complexity. Please try again later."
+                    };
+                    const errorMessage = await pollJobCompletion(bulk, jobId, statusMessages);
+                    if (errorMessage) {
+                        return ToolResponse(errorMessage);
+                    }
+
+                    await bulk.exportBulkData(jobId, fullPath);
+                } else {
+                    throw e;
+                }
+            }
+
+            return ToolResponse(
+                `Object exported successfully to ${fullPath} in ${responseFileFormat} format.`
+            );
         } catch (error) {
-            return logAndReturnError(error, `An error occurred while exporting the view`);
+            return logAndReturnError(error, `An error occurred while exporting the view`, { workspaceId, viewId });
         }
     });
 
@@ -334,7 +324,6 @@ export function registerDataTools(server: ServerInstance) {
 
         BEHAVIOR:
         - If both \`data\` and \`filePath\` are provided, \`filePath\` takes precedence.
-        - For shared workspaces, \`orgId\` is required.
 
         returns:
         - A success message if the import completes, or a descriptive error message if it fails.
@@ -361,7 +350,7 @@ export function registerDataTools(server: ServerInstance) {
     async ({ workspaceId, tableId, data, filePath, fileType }) => {
         try {
 
-            const orgId = config.ORGID || "";
+            const orgId = requireOrgId();
             let resolvedFilePath = filePath;
             if (filePath) {
                 const allowedFileRoot = process.env.ALLOWED_FILE_ROOT;
@@ -387,47 +376,45 @@ export function registerDataTools(server: ServerInstance) {
                 }
             }
 
-            return await retryWithFallback([orgId], workspaceId, "WORKSPACE", async (org_id, workspace, table, input , filePath, type) => {
-                const analyticsClient = getAnalyticsClient();
-                const bulk = analyticsClient.getBulkInstance(org_id || "", workspace);
-                if (filePath) {
-                    if ((filePath as string).startsWith("https")) {
-                        return ToolResponse("File path cannot be a remote URL. Please download the file first and provide the local file path.");
-                    }
-                    const fs = require('fs');
-                    if (!fs.existsSync(filePath)) {
-                        return ToolResponse(`File ${filePath} does not exist. Please provide a valid local file path.`);
-                    }
-                    if (!type || (type !== "csv" && type !== "json")) {
-                        return ToolResponse("File type must be specified as 'csv' or 'json'.");
-                    }
+            const analyticsClient = getAnalyticsClient();
+            const bulk = analyticsClient.getBulkInstance(orgId, workspaceId);
+            if (resolvedFilePath) {
+                if ((resolvedFilePath as string).startsWith("https")) {
+                    return ToolResponse("File path cannot be a remote URL. Please download the file first and provide the local file path.");
+                }
+                const fs = require('fs');
+                if (!fs.existsSync(resolvedFilePath)) {
+                    return ToolResponse(`File ${resolvedFilePath} does not exist. Please provide a valid local file path.`);
+                }
+                if (!fileType || (fileType !== "csv" && fileType !== "json")) {
+                    return ToolResponse("File type must be specified as 'csv' or 'json'.");
+                }
 
-                    // Prefer synchronous import for smaller files, but fall back to bulk import for larger files.
-                    // Synchronous import API has a ~20MB limit; when exceeded it can throw errorCode=8513.
-                    try {
-                        const result = await bulk.importData(table, "append", type, "true", filePath, { delimiter: '0' });
-                        return ToolResponse(JSON.stringify(result));
-                    } catch (e: any) {
-                        const errorCode = e?.errorCode ?? e?.code;
-                        if (String(errorCode) === "8513") {
-                            console.error(`[importData] Received errorCode=8513 (likely file too large for synchronous import). Falling back to bulk.importBulkData(). | workspaceId=${workspace} | tableId=${table}`);
-                            const jobId = await bulk.importBulkData(table, "append", type, "true", filePath, { delimiter: '0' });
-                            return ToolResponse(JSON.stringify({
-                                message: "The file is large. Asynchronous import job submitted, the import will happen in the background.",
-                                jobId
-                            }));
-                        }
-                        throw e;
+                // Prefer synchronous import for smaller files, but fall back to bulk import for larger files.
+                // Synchronous import API has a ~20MB limit; when exceeded it can throw errorCode=8513.
+                try {
+                    const result = await bulk.importData(tableId, "append", fileType, "true", resolvedFilePath, { delimiter: '0' });
+                    return ToolResponse(JSON.stringify(result));
+                } catch (e: any) {
+                    const errorCode = e?.errorCode ?? e?.code;
+                    if (String(errorCode) === "8513") {
+                        console.error(`[importData] Received errorCode=8513 (likely file too large for synchronous import). Falling back to bulk.importBulkData(). | workspaceId=${workspaceId} | tableId=${tableId}`);
+                        const jobId = await bulk.importBulkData(tableId, "append", fileType, "true", resolvedFilePath, { delimiter: '0' });
+                        return ToolResponse(JSON.stringify({
+                            message: "The file is large. Asynchronous import job submitted, the import will happen in the background.",
+                            jobId
+                        }));
                     }
+                    throw e;
                 }
-                if (!input) {
-                    return ToolResponse("No data provided to import. Please provide either 'data' or 'filePath'.");
-                }
-                const result = await bulk.importRawData(table, "append", "json", "true", JSON.stringify(input), { delimiter: '0' });
-                return ToolResponse(JSON.stringify(result));
-            }, workspaceId, tableId,  data, resolvedFilePath, fileType);
+            }
+            if (!data) {
+                return ToolResponse("No data provided to import. Please provide either 'data' or 'filePath'.");
+            }
+            const result = await bulk.importRawData(tableId, "append", "json", "true", JSON.stringify(data), { delimiter: '0' });
+            return ToolResponse(JSON.stringify(result));
         } catch (error) {
-            return logAndReturnError(error, "An error occurred while importing data into the table");
+            return logAndReturnError(error, "An error occurred while importing data into the table", { workspaceId, viewId: tableId });
         }
     });
 }

@@ -6,3 +6,5 @@
 docker-compose.dev.yaml
 docker-compose.*.dev.yaml
 launch.json
+tests/
+scripts/
