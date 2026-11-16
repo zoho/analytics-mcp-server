@@ -1,5 +1,6 @@
 import os
 import re
+from fnmatch import fnmatchcase
 from typing import Literal
 from src.sdk.analytics_client import AnalyticsClient
 from dotenv import load_dotenv
@@ -137,6 +138,11 @@ class Settings:
     OAUTH_MAX_REDIRECT_URIS = int(os.getenv("OAUTH_MAX_REDIRECT_URIS", "5"))
     OAUTH_MAX_GRANT_TYPES = int(os.getenv("OAUTH_MAX_GRANT_TYPES", "2"))
     OAUTH_MAX_RESPONSE_TYPES = int(os.getenv("OAUTH_MAX_RESPONSE_TYPES", "1"))
+    OAUTH_ALLOWED_REDIRECT_URIS: list[str] = [
+        item.strip()
+        for item in os.getenv("OAUTH_ALLOWED_REDIRECT_URIS", "").split(",")
+        if item.strip()
+    ]
     OAUTH_AUTH_TRANSACTION_TTL = int(os.getenv("OAUTH_AUTH_TRANSACTION_TTL", "120"))
     OAUTH_AUTH_CODE_TTL = int(os.getenv("OAUTH_AUTH_CODE_TTL", "120"))
     OAUTH_REGISTERED_CLIENTS_TTL = int(os.getenv("OAUTH_REGISTERED_CLIENTS_TTL", "36000"))
@@ -200,6 +206,17 @@ class Settings:
             limit = cls.PUBLIC_OAUTH_MAX_CLIENTS_PER_IP
             return None if limit == 0 else limit
         return cls.PRIVATE_OAUTH_MAX_CLIENTS_PER_IP
+
+
+    @classmethod
+    def is_redirect_uri_allowed(cls, uri: str) -> bool:
+        """
+        Check a redirect URI against OAUTH_ALLOWED_REDIRECT_URIS (glob patterns, '*' wildcard).
+        When the list is empty, every redirect URI is allowed.
+        """
+        if not cls.OAUTH_ALLOWED_REDIRECT_URIS:
+            return True
+        return any(fnmatchcase(uri, pattern) for pattern in cls.OAUTH_ALLOWED_REDIRECT_URIS)
 
 
     @staticmethod

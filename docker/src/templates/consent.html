@@ -152,6 +152,23 @@
             border: 1px solid var(--border);
         }
         
+        .detail-value.monospace.uri {
+            word-break: break-all;
+            text-align: left;
+        }
+        
+        .warning-banner {
+            background: #fff8e1;
+            border: 1px solid #f0c36d;
+            color: #7a5200;
+            padding: 16px 20px;
+            border-radius: 4px;
+            margin-bottom: 32px;
+            font-size: 14px;
+            line-height: 1.6;
+            word-break: break-word;
+        }
+        
         .permissions-list {
             background: var(--bg-main);
             border-radius: 4px;
@@ -292,9 +309,17 @@
             <div class="consent-message">
                 <p>
                     <strong>{{ app_name }}</strong> is requesting permission to access your data.
-                    By approving, you authorize this proxy to initiate the login process with your <strong>{{ upstream_provider }}</strong> account.
+                    By approving, you authorize this proxy to initiate the login process with your <strong>{{ upstream_provider }}</strong> account,
+                    and the authorization result will be sent to <strong>{{ redirect_host }}</strong>.
                 </p>
             </div>
+            
+            {% if not is_loopback %}
+            <div class="warning-banner">
+                <strong>Warning:</strong> This application will receive access at an external address
+                (<strong>{{ redirect_host }}</strong>). Only continue if you trust this application and recognize this address.
+            </div>
+            {% endif %}
             
             <div class="details-section">
                 <div class="section-title">Application Details</div>
@@ -309,6 +334,10 @@
                 <div class="detail-item">
                     <span class="detail-label">Client Identifier</span>
                     <span class="detail-value monospace">{{ client_id }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Redirect URI</span>
+                    <span class="detail-value monospace uri">{{ redirect_uri }}</span>
                 </div>
             </div>
             
@@ -337,7 +366,7 @@
                 <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                 </svg>
-                This is a secure authorization request. Your credentials are never shared with the application.
+                Approving grants this application access to your Zoho Analytics data. Only approve applications you trust.
             </div>
         </div>
     </div>

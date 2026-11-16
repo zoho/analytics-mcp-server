@@ -186,6 +186,8 @@ class AuthorizationTransaction(BaseModel):
     state: Optional[str] = None
     code_challenge: Optional[str] = None
     code_challenge_method: Optional[str] = None
+    approved: bool = False
+    approval_nonce: Optional[str] = None
 
 
 class AuthorizationCode(BaseModel):
@@ -347,6 +349,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+def _consent_cookie_name(transaction_id: str) -> str:
+    return f"consent_{transaction_id}"
+
+
 
 @authRouter.get("/", response_class=FileResponse)
 def index(request: Request):
@@ -451,6 +457,17 @@ async def register_client(payload: DynamicClientRegistrationRequest, request: Re
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"error": "Unable to determine client IP for registration request"}
         )
+
+    for uri in payload.redirect_uris or []:
+        if not Settings.is_redirect_uri_allowed(uri):
+            logger.warning(f"Client registration rejected: redirect_uri not allowed: {uri}")
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "error": "invalid_redirect_uri",
+                    "error_description": "One or more redirect_uris are not permitted by this server."
+                }
+            )
 
     client_id = str(uuid.uuid4())
     client_secret = secrets.token_urlsafe(32)
@@ -587,6 +604,10 @@ async def authorize(
     if redirect_uri not in (client.redirect_uris or []):
         logger.warning(f"Authorization request with invalid redirect_uri for client_id: {client_id}")
         raise HTTPException(status_code=400, detail="invalid_redirect_uri")
+
+    if not Settings.is_redirect_uri_allowed(redirect_uri):
+        logger.warning(f"Authorization request with disallowed redirect_uri for client_id: {client_id}")
+        raise HTTPException(status_code=400, detail="invalid_redirect_uri")
     
     logger.info(f"Creating authorization transaction for client_id: {client_id}")
     transaction_id = str(uuid.uuid4())
@@ -653,22 +674,29 @@ async def consent(request: Request, transaction_id: str = Query(..., max_length=
         auth_transactions_store.delete(transaction_id)
         raise HTTPException(status_code=400, detail="transaction_expired")
 
-    
-    client_id = escape(txn.client_id)
-    scope = escape(txn.scope)
-    transaction_id_escaped = escape(transaction_id)
+    client: DynamicClientRegistrationRequest = registed_clients_store.get(txn.client_id)
+    if not client:
+        logger.warning(f"Consent requested for unknown or expired client_id: {txn.client_id}")
+        auth_transactions_store.delete(transaction_id)
+        raise HTTPException(status_code=400, detail="invalid_client")
+
+    redirect_uri = str(txn.redirect_uri)
+    redirect_host = urlparse(redirect_uri).hostname
+    is_loopback = redirect_host in ("localhost", "127.0.0.1", "::1")
 
     csrf_token = generate_csrf_token(request)
-    csrf_token_escaped = escape(csrf_token)
 
-
+    # Jinja2Templates autoescapes .html templates, so values are passed raw.
     context = {
         "request": request,  # Required by FastAPI for TemplateResponse
-        "transaction_id": transaction_id_escaped,
-        "client_id": client_id,
-        "scope": scope,
-        "csrf_token": csrf_token_escaped,
-        "app_name": "Model Context Protocol (MCP) Host Application",
+        "transaction_id": transaction_id,
+        "client_id": txn.client_id,
+        "scope": txn.scope,
+        "csrf_token": csrf_token,
+        "app_name": client.client_name or "Unnamed application",
+        "redirect_uri": redirect_uri,
+        "redirect_host": redirect_host or redirect_uri,
+        "is_loopback": is_loopback,
         "upstream_provider": "Zoho Accounts"
     }
 
@@ -695,7 +723,16 @@ async def approve_consent(request: Request, transaction_id: str = Form(..., max_
     if txn.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc): 
         logger.warning(f"Expired transaction in approval flow for transaction_id: {transaction_id}")
         auth_transactions_store.delete(transaction_id)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="transaction_expired")   
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="transaction_expired")
+    
+    txn.approved = True
+    txn.approval_nonce = secrets.token_urlsafe(32)
+    remaining_ttl = max(
+        1,
+        int((ensure_aware_utc(txn.expires_at) - datetime.now(timezone.utc)).total_seconds()),
+    )
+    auth_transactions_store.set(transaction_id, txn, ttl_in_sec=remaining_ttl)
+
 
     upstream_auth_endpoint = urljoin(
         Settings.oidc_provider_base_url().rstrip('/') + '/', 
@@ -715,7 +752,17 @@ async def approve_consent(request: Request, transaction_id: str = Form(..., max_
     
     upstream_auth_url = build_url_with_params(upstream_auth_endpoint, upstream_params)
     logger.info(f"Redirecting user to upstream authorization endpoint for transaction_id: {transaction_id}")
-    return RedirectResponse(url=upstream_auth_url, status_code=status.HTTP_302_FOUND)
+    response = RedirectResponse(url=upstream_auth_url, status_code=status.HTTP_302_FOUND)
+    response.set_cookie(
+        key=_consent_cookie_name(transaction_id),
+        value=txn.approval_nonce,
+        max_age=remaining_ttl,
+        httponly=True,
+        secure=Settings.MCP_SERVER_PUBLIC_URL.lower().startswith("https"),
+        samesite="lax",   # must be Lax, not Strict: the callback is a cross-site top-level GET from Zoho
+        path="/auth/callback",
+    )
+    return response
 
 
 
@@ -738,6 +785,7 @@ def ensure_aware_utc(dt: datetime) -> datetime:
 
 @authRouter.get("/auth/callback", dependencies=[Depends(scenario_standard_rate_limit())])
 async def proxy_callback(
+    request: Request,
     code: str = Query(..., max_length=100), 
     state: str = Query(..., max_length=100),
     location: str | None = Query(None, max_length=200)
@@ -784,6 +832,18 @@ async def proxy_callback(
         logger.warning(f"Expired transaction in callback for transaction_id: {transaction_id}")
         auth_transactions_store.delete(transaction_id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="transaction_expired")
+
+    auth_transactions_store.delete(transaction_id)
+
+    cookie_nonce = request.cookies.get(_consent_cookie_name(transaction_id))
+    if (
+        not txn.approved
+        or not txn.approval_nonce
+        or not cookie_nonce
+        or not hmac.compare_digest(cookie_nonce, txn.approval_nonce)
+    ):
+        logger.warning(f"Callback without valid consent approval for transaction_id: {transaction_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="consent_required")
         
 
     logger.debug(f"Storing upstream authorization code for transaction_id: {transaction_id}")
@@ -817,7 +877,9 @@ async def proxy_callback(
     
     final_redirect_url = build_url_with_params(txn.redirect_uri.__str__(), client_params)
     logger.debug(f"Redirecting to client callback URI for client_id: {txn.client_id}")
-    return RedirectResponse(url=final_redirect_url, status_code=status.HTTP_302_FOUND)
+    response = RedirectResponse(url=final_redirect_url, status_code=status.HTTP_302_FOUND)
+    response.delete_cookie(_consent_cookie_name(transaction_id), path="/auth/callback")
+    return response
 
 
 async def upstream_token_exchange(payload: dict) -> dict:
@@ -864,7 +926,7 @@ authorization code (received during the `/auth/callback` step) for the
 async def token_exchange(
     grant_type: str = Form(..., max_length=100),
     code: Optional[str] = Form(None, max_length=200),
-    redirect_uri: Optional[str] = Form(None, max_length=200),
+    redirect_uri: Optional[str] = Form(None, max_length=1000),
     client_id: str = Form(..., max_length=100),
     client_secret: str = Form(..., max_length=200),
     refresh_token: Optional[str] = Form(None, max_length=200),
@@ -917,7 +979,14 @@ async def token_exchange(
             auth_codes_store.delete(code)
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_grant")
 
-        
+        try:
+            presented_redirect_uri = str(AnyUrl(redirect_uri)) if redirect_uri else None
+        except ValueError:
+            presented_redirect_uri = None
+        if presented_redirect_uri != str(auth_code_data.redirect_uri):
+            logger.warning(f"redirect_uri mismatch at token exchange for client: {client_id}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_grant")
+
         validate_pkce(code_verifier=code_verifier, code_challenge=auth_code_data.code_challenge, method=auth_code_data.code_challenge_method)
         upstream_payload["code"] = auth_code_data.upstream_code
         auth_codes_store.delete(code)
