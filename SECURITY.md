@@ -155,6 +155,12 @@ The following table lists all available security configuration options. Configur
 | `PUBLIC_OAUTH_REGISTRATION_RATE_LIMIT_WINDOW` | `3600` | Time window in seconds for registration rate limit (default: 1 hour). | `DEPLOYMENT_SCENARIO=public_network` | `3600`, `7200` |
 | `PUBLIC_OAUTH_MAX_CLIENTS_PER_IP` | `0` | Maximum number of active OAuth clients per IP. Set to `0` for unlimited. | `DEPLOYMENT_SCENARIO=public_network` | `0`, `20`, `50` |
 
+### OAuth Client Registration
+
+| Variable | Default | Description | Depends On | Example Values |
+|----------|---------|-------------|------------|----------------|
+| `OAUTH_ALLOWED_REDIRECT_URIS` | Empty (allow all) | Comma-separated list of redirect URI patterns that dynamically registered clients may use. `*` is a wildcard. Registrations (`/register`) and authorization requests (`/authorize`) with any other redirect URI are rejected with `invalid_redirect_uri`. When empty, all redirect URIs are allowed. End the host part of a pattern with `/` or `:` (e.g. `https://example.com/*`, not `https://example.com*`), otherwise it also matches hosts like `example.com.evil.com`. | None | `http://127.0.0.1:*/*,http://localhost:*/*`, `https://claude.ai/api/mcp/auth_callback`, `cursor://*` |
+
 ### Redis Configuration
 
 | Variable | Default | Description | Depends On | Example Values |
