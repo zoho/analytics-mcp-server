@@ -225,6 +225,14 @@ def _next_meaningful(tokens: List[Token], start: int) -> Optional[int]:
     return None
 
 
+def _parse_count(value: str) -> Optional[int]:
+    """Parse a LIMIT count token; return None if it is not a plain integer."""
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 def enforce_limit(query: str, upper_limit: int) -> str:
     """
     Enforce an upper bound on the outermost LIMIT of a MySQL SELECT query.
@@ -270,7 +278,10 @@ def enforce_limit(query: str, upper_limit: int) -> str:
         return _rebuild(tokens)
 
     first_num_idx = pos
-    first_num_val = int(tokens[pos].value)
+    first_num_val = _parse_count(tokens[pos].value)
+    if first_num_val is None:
+        # Non-integer LIMIT count (e.g. LIMIT 10.5) — can't parse, return as-is
+        return _rebuild(tokens)
 
     # Look ahead to determine the form
     next_pos = _next_meaningful(tokens, pos + 1)
@@ -279,7 +290,10 @@ def enforce_limit(query: str, upper_limit: int) -> str:
         # Form: LIMIT <offset>, <count>
         count_idx_pos = _next_meaningful(tokens, next_pos + 1)
         if count_idx_pos is not None and tokens[count_idx_pos].type == TokenType.NUMBER:
-            count_val = int(tokens[count_idx_pos].value)
+            count_val = _parse_count(tokens[count_idx_pos].value)
+            if count_val is None:
+                # Non-integer count — can't parse, return as-is
+                return _rebuild(tokens)
             if count_val <= upper_limit:
                 # Case (ii): already within bounds
                 return _rebuild(tokens)
