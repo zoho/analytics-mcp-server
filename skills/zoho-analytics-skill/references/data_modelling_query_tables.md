@@ -125,7 +125,7 @@ Fetches the details of a query table, including its SQL query and column structu
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `workspaceId` | string | Yes | The ID of the workspace containing the query table |
-| `queryTableId` | string | Yes | The ID of the query table (view type `6`). Must not be the ID of a regular table or report |
+| `queryTableId` | string | Yes | The view ID of the query table (view type `6`). Must not be the ID of a regular table or report |
 | `orgId` | string | No | Organization ID. Defaults to configured `ORGID` if omitted |
 
 **Tool call:**
@@ -165,7 +165,7 @@ Replaces the SQL query that defines an existing query table.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `workspaceId` | string | Yes | The ID of the workspace containing the query table |
-| `viewId` | string | Yes | The ID of the query table to edit (view type `6`). Must not be the ID of a regular table or report |
+| `viewId` | string | Yes | The view ID of the query table to edit (view type `6`). Must not be the ID of a regular table or report |
 | `sqlQuery` | string | Yes | The new, complete MySQL-compatible SELECT query. It fully replaces the existing query |
 | `orgId` | string | No | Organization ID. Defaults to configured `ORGID` if omitted |
 
