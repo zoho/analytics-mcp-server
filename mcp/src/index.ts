@@ -3,9 +3,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerMasterTool, toolRegistry } from "./tool-registry";
 import "./tools/index";
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 
 const requiredEnvVars = [

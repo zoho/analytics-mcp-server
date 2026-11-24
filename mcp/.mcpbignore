@@ -3,4 +3,8 @@
 /packages/
 *.mcpb
 .mcpbignore
-docker-compose.dev.yaml
+docker-compose*.yaml
+docker-compose*.yml
+.env
+.env.*
+.vscode
