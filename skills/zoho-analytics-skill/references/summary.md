@@ -25,41 +25,35 @@ Arguments (passed to `createReport`):
 - Valid `aggregate` operations are `sum`, `count`, `average`, `min`, `max`. Never use `actual` in `aggregate` — every aggregate entry must produce a computed value, not the raw column; the tool rejects `actual` here explicitly.
 - Unlike Chart reports (see [Charts](./charts.md)), every `groupBy` and `aggregate` entry requires its own `tableName`, even when it's the same as the report's base `tableName` — supply it explicitly on each entry.
 
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableName": "<table_name>",
-        "reportName": "<report_name>",
-        "reportType": "summary",
-        "summaryConfig": {
-            "groupBy": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}],
-            "aggregate": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}]
-        },
-        "filters": [<filter_objects>]
-    }
-)
+```js
+return await tools.createReport({
+    "workspaceId": "<workspace_id>",
+    "tableName": "<table_name>",
+    "reportName": "<report_name>",
+    "reportType": "summary",
+    "summaryConfig": {
+        "groupBy": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}],
+        "aggregate": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}]
+    },
+    "filters": [<filter_objects>]
+})
 ```
 
 Example — total sales and order count by region:
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Sales Data",
-        "reportName": "Sales Summary by Region",
-        "reportType": "summary",
-        "summaryConfig": {
-            "groupBy": [
-                {"columnName": "Region", "tableName": "Sales Data", "operation": "actual"}
-            ],
-            "aggregate": [
-                {"columnName": "Sales Amount", "tableName": "Sales Data", "operation": "sum"},
-                {"columnName": "Order ID", "tableName": "Sales Data", "operation": "count"}
-            ]
-        }
+```js
+return await tools.createReport({
+    "workspaceId": "123456789",
+    "tableName": "Sales Data",
+    "reportName": "Sales Summary by Region",
+    "reportType": "summary",
+    "summaryConfig": {
+        "groupBy": [
+            {"columnName": "Region", "tableName": "Sales Data", "operation": "actual"}
+        ],
+        "aggregate": [
+            {"columnName": "Sales Amount", "tableName": "Sales Data", "operation": "sum"},
+            {"columnName": "Order ID", "tableName": "Sales Data", "operation": "count"}
+        ]
     }
-)
+})
 ```

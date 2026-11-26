@@ -103,18 +103,15 @@ Numeric column, top-N ranking:
 ## Using filters in a report
 
 `filters` is passed alongside the report's config object in `createReport` or `updateReport`:
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableName": "<table_name>",
-        "reportName": "<report_name>",
-        "reportType": "<chart|summary|pivot>",
-        "chartConfig|summaryConfig|pivotConfig": { ... },
-        "filters": [<filter_objects>]
-    }
-)
+```js
+return await tools.createReport({
+    "workspaceId": "<workspace_id>",
+    "tableName": "<table_name>",
+    "reportName": "<report_name>",
+    "reportType": "<chart|summary|pivot>",
+    "chartConfig|summaryConfig|pivotConfig": { ... },
+    "filters": [<filter_objects>]
+})
 ```
 
 For `updateReport`, pass `filters` alongside the report config in the same way. Omitting it clears all existing filters — re-submit any filters you want to preserve.

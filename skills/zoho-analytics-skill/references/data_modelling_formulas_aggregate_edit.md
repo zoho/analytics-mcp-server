@@ -19,22 +19,18 @@ Updates the expression or description of an existing aggregate formula.
 
 ### Tool Call
 
-```
-execute_analytics_tool(
-    "editAggregateFormula",
-    {
-        "workspaceId": "<workspace_id>",
-        "formulaId": "<formula_id>",
-        "expression": "<new_aggregate_expression>",
-        "description": "<new_description>"
-    }
-)
+```js
+return await tools.editAggregateFormula({
+    "workspaceId": "<workspace_id>",
+    "formulaId": "<formula_id>",
+    "expression": "<new_aggregate_expression>",
+    "description": "<new_description>"
+})
 ```
 
 ### Returns
 
-A success message confirming the formula was updated, e.g.:
-`Aggregate formula (ID: 111111111) updated successfully.`
+`data` is `null`; the confirmation is in `messages`.
 
 ---
 
@@ -42,27 +38,21 @@ A success message confirming the formula was updated, e.g.:
 
 Example — update the expression and add a description:
 
-```
-execute_analytics_tool(
-    "editAggregateFormula",
-    {
-        "workspaceId": "123456789",
-        "formulaId": "111111111",
-        "expression": "SUM(IF(\"Status\" = 'Closed', \"Revenue\", 0))",
-        "description": "Sum of revenue from closed deals only"
-    }
-)
+```js
+return await tools.editAggregateFormula({
+    "workspaceId": "123456789",
+    "formulaId": "111111111",
+    "expression": "SUM(IF(\"Status\" = 'Closed', \"Revenue\", 0))",
+    "description": "Sum of revenue from closed deals only"
+})
 ```
 
 Example — update only the expression (no description change):
 
-```
-execute_analytics_tool(
-    "editAggregateFormula",
-    {
-        "workspaceId": "123456789",
-        "formulaId": "111111111",
-        "expression": "SUM(\"Revenue\") / NULLIF(COUNT(DISTINCT \"CustomerID\"), 0)"
-    }
-)
+```js
+return await tools.editAggregateFormula({
+    "workspaceId": "123456789",
+    "formulaId": "111111111",
+    "expression": "SUM(\"Revenue\") / NULLIF(COUNT(DISTINCT \"CustomerID\"), 0)"
+})
 ```

@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "../../../tool-registry";
 import { getAnalyticsClient, config } from "../../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../../utils/common";
+import { retryWithFallback } from "../../../utils/common";
+import { ok, fail, failFromError } from "../../../response";
+import { idResult, NoData } from "../../../dtos";
 
 // ---- Shared helpers ----
 
@@ -41,6 +43,7 @@ defineTool({
       )
       .describe("A list of column definitions for the table"),
   },
+  returns: idResult("tableId", "ID of the newly created table"),
   handler: async ({ workspaceId, tableName, columnsArr }) => {
     try {
       const orgId = config.ORGID || "";
@@ -59,14 +62,14 @@ defineTool({
           const analyticsClient = getAnalyticsClient();
           const workspaceInst = analyticsClient.getWorkspaceInstance(org_id, workspace);
           const tableId = await workspaceInst.createTable(tableDesign);
-          return ToolResponse(`Table '${tableName}' created successfully. Table Id: ${tableId}`);
+          return ok({ tableId: String(tableId) }, `Table '${tableName}' created successfully. Use data.tableId as the view ID in other operations.`);
         },
         workspaceId,
         tableName,
         columnsArr
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while creating the table");
+      return failFromError(err, "An error occurred while creating the table");
     }
   },
 });
@@ -116,6 +119,9 @@ defineTool({
       .min(1)
       .describe("A list of column definitions to add"),
   },
+  returns: z.object({
+    columns: z.array(z.object({ columnName: z.string(), columnId: z.string() })).describe("The added columns with their IDs"),
+  }),
   handler: async ({ workspaceId, viewId, columns }) => {
     try {
       const orgId = config.ORGID || "";
@@ -140,11 +146,9 @@ defineTool({
             results.push({ columnName: col.columnName, columnId });
           }
 
-          const summary = results
-            .map((r) => `- ${r.columnName} (Column Id: ${r.columnId})`)
-            .join("\n");
-          return ToolResponse(
-            `Added ${results.length} column(s) to view '${view}':\n${summary}`
+          return ok(
+            { columns: results.map((r) => ({ columnName: r.columnName, columnId: String(r.columnId) })) },
+            `Added ${results.length} column(s) to view '${view}'.`
           );
         },
         workspaceId,
@@ -152,7 +156,7 @@ defineTool({
         columns
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while adding columns");
+      return failFromError(err, "An error occurred while adding columns");
     }
   },
 });
@@ -181,6 +185,7 @@ defineTool({
       .optional()
       .describe("Whether to delete the column even when it has dependent views. Defaults to false"),
   },
+  returns: NoData,
   handler: async ({ workspaceId, viewId, columnId, deleteDependentViews }) => {
     try {
       const orgId = config.ORGID || "";
@@ -196,7 +201,7 @@ defineTool({
             configObj.deleteDependentViews = deleteDependent;
           }
           await viewInst.deleteColumn(colId, configObj);
-          return ToolResponse(`Column '${colId}' deleted successfully from view '${view}'.`);
+          return ok(null, `Column '${colId}' deleted successfully from view '${view}'.`);
         },
         workspaceId,
         viewId,
@@ -204,7 +209,7 @@ defineTool({
         deleteDependentViews
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while deleting the column");
+      return failFromError(err, "An error occurred while deleting the column");
     }
   },
 });

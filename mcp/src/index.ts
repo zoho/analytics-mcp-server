@@ -1,9 +1,13 @@
 #!/usr/bin/env node
+import "./env-loader";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerMasterTool, toolRegistry } from "./tool-registry";
+import { registerCodeModeTools } from "./codemode/register";
 import "./tools/index";
 
+// stdout is the MCP stdio channel; stray console.log output would corrupt it.
+console.log = console.error;
 
 const requiredEnvVars = [
   "ANALYTICS_CLIENT_ID",
@@ -31,12 +35,13 @@ for (const envVar of requiredEnvVars) {
 
 const server = new McpServer({
   name: "zoho-analytics",
-  version: "1.0.6"
+  version: "1.0.9"
 });
 
 toolRegistry.setContext({ server });
 
-registerMasterTool(server);
+// registerMasterTool(server);
+registerCodeModeTools(server);
 
 const transport = new StdioServerTransport();
 (async () => {

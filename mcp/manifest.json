@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "Zoho Analytics MCP Server",
   "display_name": "Zoho Analytics MCP Server",
-  "version": "1.0.6",
+  "version": "1.0.9",
   "description": "Works together with Zoho Analytics Skills and helps turn natural language into data insights. Analyze BI data, visualize trends, and answer complex business questions using Zoho Analytics",
   "long_description": "The Zoho Analytics MCP Server implements the Model Context Protocol (MCP), a standardized interface that enables AI models to interact seamlessly with applications. This middleware solution bridges the connection between AI agents and Zoho Analytics, providing powerful data analysis capabilities through a unified interface.",
   "author": {
@@ -30,7 +30,8 @@
         "ACCOUNTS_SERVER_URL": "${user_config.ACCOUNTS_SERVER_URL}",
         "ANALYTICS_SERVER_URL": "${user_config.ANALYTICS_SERVER_URL}",
         "ALLOWED_FILE_ROOT": "${user_config.ALLOWED_FILE_ROOT}",
-        "QUERY_DATA_RESULT_ROW_LIMITS": "${user_config.QUERY_DATA_RESULT_ROW_LIMITS}"
+        "QUERY_DATA_RESULT_ROW_LIMITS": "${user_config.QUERY_DATA_RESULT_ROW_LIMITS}",
+        "ADDITIONAL_ENVIRONMENT_VARIABLES": "${user_config.additional_environment_variables}"
       }
     }
   },
@@ -99,8 +100,16 @@
       "type": "number",
       "title": "Query Data Result Row Limits",
       "description": "The maximum number of rows that can be returned in the result when querying data from Zoho Analytics. This limit helps to prevent excessive API units consumption and ensures the agent context is not overloaded",
-      "required": false,
+      "required": true,
       "sensitive": false
+    },
+    "additional_environment_variables": {
+      "type": "string",
+      "title": "Additional Environment Variables",
+      "description": "Extra environment variables, one per line in KEY=VALUE format. These override any variable of the same name set above.\nExample:\nCODEMODE_TIMEOUT_MS=60000\nCODEMODE_MEMORY_MB=64\nCODEMODE_MAX_TOOL_CALLS=50\nCODEMODE_MAX_OUTPUT_CHARS=100000",
+      "required": false,
+      "sensitive": false,
+      "default": ""
     }
   },
   "keywords": [

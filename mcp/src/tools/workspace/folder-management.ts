@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "../../tool-registry";
 import { getAnalyticsClient, config } from "../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../utils/common";
+import { retryWithFallback } from "../../utils/common";
+import { ok, failFromError } from "../../response";
+import { FolderDto, NoData, idResult, listResult } from "../../dtos";
 
 // ---- Tool Registrations ----
 
@@ -41,6 +43,7 @@ defineTool({
     makeDefaultFolder: z.boolean().optional().describe("Optional. Set to true to make this folder the default. Defaults to false"),
     orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided"),
   },
+  returns: idResult("folderId", "ID of the newly created folder"),
   handler: async ({ workspaceId, folderName, folderDesc, parentFolderId, makeDefaultFolder, orgId }) => {
     try {
       if (!orgId) {
@@ -60,12 +63,12 @@ defineTool({
           if (makeDefaultFolder !== undefined) folderConfig.makeDefaultFolder = makeDefaultFolder;
 
           const folderId = await (workspaceInst as any).createFolder(folderName, folderConfig);
-          return ToolResponse(`Folder '${folderName}' created successfully. Folder ID: ${folderId}`);
+          return ok({ folderId: String(folderId) }, `Folder '${folderName}' created successfully. Use data.folderId with moveViewsToFolder to organize views.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while creating the folder");
+      return failFromError(err, "An error occurred while creating the folder");
     }
   },
 });
@@ -91,6 +94,7 @@ defineTool({
     folderId: z.string().describe("The ID of the folder to delete"),
     orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided"),
   },
+  returns: NoData,
   handler: async ({ workspaceId, folderId, orgId }) => {
     try {
       if (!orgId) {
@@ -104,12 +108,12 @@ defineTool({
           const ac = getAnalyticsClient();
           const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
           await (workspaceInst as any).deleteFolder(folderId);
-          return ToolResponse(`Folder '${folderId}' deleted successfully.`);
+          return ok(null, `Folder '${folderId}' deleted successfully.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while deleting the folder");
+      return failFromError(err, "An error occurred while deleting the folder");
     }
   },
 });
@@ -135,6 +139,7 @@ defineTool({
     newFolderName: z.string().describe("The new name for the folder"),
     orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided"),
   },
+  returns: NoData,
   handler: async ({ workspaceId, folderId, newFolderName, orgId }) => {
     try {
       if (!orgId) {
@@ -148,12 +153,12 @@ defineTool({
           const ac = getAnalyticsClient();
           const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
           await (workspaceInst as any).renameFolder(folderId, newFolderName);
-          return ToolResponse(`Folder '${folderId}' renamed to '${newFolderName}' successfully.`);
+          return ok(null, `Folder '${folderId}' renamed to '${newFolderName}' successfully.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while renaming the folder");
+      return failFromError(err, "An error occurred while renaming the folder");
     }
   },
 });
@@ -181,6 +186,7 @@ defineTool({
     viewIds: z.array(z.string()).describe("Array of view IDs to move into the folder"),
     orgId: z.string().optional().describe("The ID of the organization. Defaults to config.ORGID if not provided"),
   },
+  returns: NoData,
   handler: async ({ workspaceId, folderId, viewIds, orgId }) => {
     try {
       if (!orgId) {
@@ -194,12 +200,12 @@ defineTool({
           const ac = getAnalyticsClient();
           const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
           await (workspaceInst as any).moveViewsToFolder(folderId, viewIds);
-          return ToolResponse(`${viewIds.length} view(s) moved to folder '${folderId}' successfully.`);
+          return ok(null, `${viewIds.length} view(s) moved to folder '${folderId}' successfully.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while moving views to the folder");
+      return failFromError(err, "An error occurred while moving views to the folder");
     }
   },
 });
@@ -214,7 +220,7 @@ defineTool({
 
     Important Notes:
     1) In Zoho Analytics, folders are used to organize views (tables, reports, dashboards) within a workspace.
-    2) Returns folder metadata such as folder IDs, names, descriptions, default status, creator, and creation time.
+    2) Returns folder metadata: folderId, folderName, folderDesc, folderIndex, parentFolderId ("-1" for root-level folders) and isDefault. Creator and creation time are not returned.
     3) Folders support exactly 2 levels of nesting: a workspace can contain root-level folders (level 1), and each root-level folder can contain sub-folders (level 2).
 
     Returns:
@@ -228,6 +234,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: listResult("folders", FolderDto),
   handler: async ({ workspaceId, orgId }) => {
     try {
       if (!orgId) {
@@ -243,15 +250,15 @@ defineTool({
           const folders = await (workspaceInst as any).getFolders();
 
           if (!folders || folders.length === 0) {
-            return ToolResponse("No folders found in this workspace.");
+            return ok({ folders: [], count: 0 }, "No folders found in this workspace.");
           }
 
-          return ToolResponse(JSON.stringify(folders, null, 2));
+          return ok({ folders, count: folders.length }, `Found ${folders.length} folder(s). Use data.folders[].folderId with createFolder (parentFolderId), renameFolder, deleteFolder or moveViewsToFolder.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while fetching folders");
+      return failFromError(err, "An error occurred while fetching folders");
     }
   },
 });

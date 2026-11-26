@@ -12,29 +12,22 @@ Workspaces are the top-level containers in Zoho Analytics, similar to databases.
 Creates a new workspace.
 
 Arguments:
-- name (required): The display name of the new workspace.
-- description (optional): A brief description of the workspace's purpose.
+- workspaceName (required): The display name of the new workspace.
 
-```
-execute_analytics_tool(
-    "createWorkspace",
-    {
-        "name": "<workspace_name>",
-        "description": "<workspace_description>"
-    }
-)
+**Returns (`data`):** `{ "workspaceId": string }`
+
+```js
+return await tools.createWorkspace({
+    "workspaceName": "<workspace_name>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "createWorkspace",
-    {
-        "name": "Sales Analytics",
-        "description": "A workspace for analyzing sales data and generating insights."
-    }
-)
+```js
+return await tools.createWorkspace({
+    "workspaceName": "Sales Analytics"
+})
 ```
 
 
@@ -46,26 +39,22 @@ Arguments:
 - includeSharedWorkspaces (optional): When `true`, includes workspaces shared with the user in addition to workspaces the user owns. Defaults to `false`. Only enable when shared workspaces are relevant to the task - enabling it unnecessarily increases response time when many shared workspaces exist.
 - containsStr (optional): Case-insensitive filter; returns only workspaces whose names contain the specified string (e.g. `"sales"` matches `"Sales Analytics"` and `"Global Sales Data"`).
 
-```
-execute_analytics_tool(
-    "getWorkspaceList",
-    {
-        "includeSharedWorkspaces": <true/false>,
-        "containsStr": "<string_to_filter_workspaces_based_on_name>"
-    }
-)
+**Returns (`data`):** `{ workspaces: Workspace[], count: number }` (at most 20). Each `Workspace` has `workspaceId`, `workspaceName` and `owned`.
+
+```js
+return await tools.getWorkspaceList({
+    "includeSharedWorkspaces": <true/false>,
+    "containsStr": "<string_to_filter_workspaces_based_on_name>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "getWorkspaceList",
-    {
-        "includeSharedWorkspaces": true,
-        "containsStr": "Sales"
-    }
-)
+```js
+return await tools.getWorkspaceList({
+    "includeSharedWorkspaces": true,
+    "containsStr": "Sales"
+})
 ```
 
 
@@ -86,31 +75,27 @@ Arguments:
   Defaults to `[0, 6]` (tables and query tables) if omitted.
 - viewContainsStr (optional): Case-insensitive string filter on view names.
 
+**Returns (`data`):** `{ views: ViewSummary[], count: number }`. Each `ViewSummary` has `viewId`, `viewName` and `viewDesc`.
+
 Important Notes:
 - At most 20 views are returned per call. When a workspace has many views and only some are relevant, use paginated calls and write intermediate results to a temp file; return the top relevant matches once identified.
 
-```
-execute_analytics_tool(
-    "searchViews",
-    {
-        "workspaceId": "<workspace_id>",
-        "allowedViewTypesIds": [0, 6],
-        "viewContainsStr": "<name_filter>"
-    }
-)
+```js
+return await tools.searchViews({
+    "workspaceId": "<workspace_id>",
+    "allowedViewTypesIds": [0, 6],
+    "viewContainsStr": "<name_filter>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "searchViews",
-    {
-        "workspaceId": "123456789",
-        "allowedViewTypesIds": [0, 2],
-        "viewContainsStr": "sales"
-    }
-)
+```js
+return await tools.searchViews({
+    "workspaceId": "123456789",
+    "allowedViewTypesIds": [0, 2],
+    "viewContainsStr": "sales"
+})
 ```
 
 
@@ -123,27 +108,23 @@ Arguments:
 - viewId (required): The ID of the view to delete. Use `searchViews` to look up the ID if you don't already have it.
 - orgId (optional): The ID of the organization to which the workspace belongs. Defaults to the configured `ORGID` if not provided. Required when working with views in a shared/org workspace that differs from the default org.
 
-```
-execute_analytics_tool(
-    "deleteView",
-    {
-        "workspaceId": "<workspace_id>",
-        "viewId": "<view_id>",
-        "orgId": "<org_id>"
-    }
-)
+**Returns (`data`):** `null`; the confirmation is in `messages`.
+
+```js
+return await tools.deleteView({
+    "workspaceId": "<workspace_id>",
+    "viewId": "<view_id>",
+    "orgId": "<org_id>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "deleteView",
-    {
-        "workspaceId": "123456789",
-        "viewId": "987654321"
-    }
-)
+```js
+return await tools.deleteView({
+    "workspaceId": "123456789",
+    "viewId": "987654321"
+})
 ```
 
 

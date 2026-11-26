@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "../../../tool-registry";
 import { getAnalyticsClient, config } from "../../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../../utils/common";
+import { retryWithFallback } from "../../../utils/common";
+import { ok, fail, failFromError } from "../../../response";
+import { NoData } from "../../../dtos";
 
 // ---- Tool Registrations ----
 
@@ -31,6 +33,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: NoData,
   handler: async ({
     workspaceId,
     sourceTableId,
@@ -75,7 +78,8 @@ defineTool({
             },
           ];
           await (viewInstance as any).addLookupV2(srcCol, references, {});
-          return ToolResponse(
+          return ok(
+            null,
             `Lookup relationship created successfully. Source table: ${srcTable}, Source column: ${srcCol} → Target table: ${tgtTable}, Target column: ${tgtCol}, Relationship type: ${relType}`
           );
         },
@@ -90,9 +94,9 @@ defineTool({
       const errorCode = err?.errorCode;
       const errorMessage = err?.errorMessage;
       if (errorCode !== undefined) {
-        return ToolResponse(`Error [${errorCode}]: ${errorMessage || "An unknown error occurred while creating the lookup"}`);
+        return fail({ message: errorMessage || "An unknown error occurred while creating the lookup", code: errorCode });
       }
-      return logAndReturnError(err, "An error occurred while creating the lookup");
+      return failFromError(err, "An error occurred while creating the lookup");
     }
   },
 });
@@ -109,6 +113,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: NoData,
   handler: async ({ workspaceId, viewId, columnId, orgId }) => {
     try {
       if (!orgId) {
@@ -122,7 +127,7 @@ defineTool({
           const ac = getAnalyticsClient();
           const viewInstance = ac.getViewInstance(org_id || "", workspace, view);
           await (viewInstance as any).removeLookup(col, {});
-          return ToolResponse(`Lookup relationship for column ${col} in view ${view} removed successfully.`);
+          return ok(null, `Lookup relationship for column ${col} in view ${view} removed successfully.`);
         },
         workspaceId,
         viewId,
@@ -132,9 +137,9 @@ defineTool({
       const errorCode = err?.errorCode;
       const errorMessage = err?.errorMessage;
       if (errorCode !== undefined) {
-        return ToolResponse(`Error [${errorCode}]: ${errorMessage || "An unknown error occurred while removing the lookup"}`);
+        return fail({ message: errorMessage || "An unknown error occurred while removing the lookup", code: errorCode });
       }
-      return logAndReturnError(err, "An error occurred while removing the lookup");
+      return failFromError(err, "An error occurred while removing the lookup");
     }
   },
 });

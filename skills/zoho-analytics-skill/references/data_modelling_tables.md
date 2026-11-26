@@ -23,35 +23,31 @@ Creates a new table in a workspace with a defined set of columns.
     - `EMAIL` — email address
     - `URL` — web URL
 
+```js
+return await tools.createTable({
+    "workspaceId": "<workspace_id>",
+    "tableName": "<table_name>",
+    "columnsArr": [
+        { "columnName": "<col_name>", "dataType": "<data_type>" }
+    ]
+})
 ```
-execute_analytics_tool(
-    "createTable",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableName": "<table_name>",
-        "columnsArr": [
-            { "columnName": "<col_name>", "dataType": "<data_type>" }
-        ]
-    }
-)
-```
+
+**Returns (`data`):** `{ "tableId": string }` - the ID of the created table (use it as `viewId` in other operations).
 
 **Example** — create an Orders table:
 
-```
-execute_analytics_tool(
-    "createTable",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Orders",
-        "columnsArr": [
-            { "columnName": "Order ID",    "dataType": "PLAIN" },
-            { "columnName": "Customer ID", "dataType": "PLAIN" },
-            { "columnName": "Amount",      "dataType": "CURRENCY" },
-            { "columnName": "Order Date",  "dataType": "DATE" }
-        ]
-    }
-)
+```js
+return await tools.createTable({
+    "workspaceId": "123456789",
+    "tableName": "Orders",
+    "columnsArr": [
+        { "columnName": "Order ID",    "dataType": "PLAIN" },
+        { "columnName": "Customer ID", "dataType": "PLAIN" },
+        { "columnName": "Amount",      "dataType": "CURRENCY" },
+        { "columnName": "Order Date",  "dataType": "DATE" }
+    ]
+})
 ```
 
 ---
@@ -92,82 +88,72 @@ Adds one or more columns to an existing table.
     - `7` — Longitude
     - `8` — Airport
 
+**Returns (`data`):** `{ "columns": [{ "columnName": string, "columnId": string }] }` - the added columns with their IDs.
+
 **Tool call:**
-```
-execute_analytics_tool(
-    "addColumn",
-    {
-        "workspaceId": "<workspace_id>",
-        "viewId": "<table_id>",
-        "columns": [
-            {
-                "columnName": "<column_name>",
-                "dataType": "<data_type>",
-                "isPIIColumn": false
-            }
-        ]
-    }
-)
+```js
+return await tools.addColumn({
+    "workspaceId": "<workspace_id>",
+    "viewId": "<table_id>",
+    "columns": [
+        {
+            "columnName": "<column_name>",
+            "dataType": "<data_type>",
+            "isPIIColumn": false
+        }
+    ]
+})
 ```
 
 **Example 1 — Add Region and Notes columns:**
 
-```
-execute_analytics_tool(
-    "addColumn",
-    {
-        "workspaceId": "123456789",
-        "viewId": "987654321",
-        "columns": [
-            {
-                "columnName": "Region",
-                "dataType": "PLAIN"
-            },
-            {
-                "columnName": "Notes",
-                "dataType": "MULTI_LINE"
-            }
-        ]
-    }
-)
+```js
+return await tools.addColumn({
+    "workspaceId": "123456789",
+    "viewId": "987654321",
+    "columns": [
+        {
+            "columnName": "Region",
+            "dataType": "PLAIN"
+        },
+        {
+            "columnName": "Notes",
+            "dataType": "MULTI_LINE"
+        }
+    ]
+})
 ```
 
 **Example 2 — Add a GEO column with GEOROLE:**
 
-```
-execute_analytics_tool(
-    "addColumn",
-    {
-        "workspaceId": "123456789",
-        "viewId": "987654321",
-        "columns": [
-            {
-                "columnName": "Customer City",
-                "dataType": "GEO",
-                "GEOROLE": 4
-            }
-        ]
-    }
-)
+```js
+return await tools.addColumn({
+    "workspaceId": "123456789",
+    "viewId": "987654321",
+    "columns": [
+        {
+            "columnName": "Customer City",
+            "dataType": "GEO",
+            "GEOROLE": 4
+        }
+    ]
+})
 ```
 
 **Example 3 — Add a PII column (customer email):**
 
-```
-execute_analytics_tool(
-    "addColumn",
-    {
-        "workspaceId": "123456789",
-        "viewId": "987654321",
-        "columns": [
-            {
-                "columnName": "Customer Email",
-                "dataType": "EMAIL",
-                "isPIIColumn": true
-            }
-        ]
-    }
-)
+```js
+return await tools.addColumn({
+    "workspaceId": "123456789",
+    "viewId": "987654321",
+    "columns": [
+        {
+            "columnName": "Customer Email",
+            "dataType": "EMAIL",
+            "isPIIColumn": true
+        }
+    ]
+})
 ```
 
 ---
@@ -182,44 +168,37 @@ Deletes a single column from an existing table.
 - `columnId` (required): The ID of the column to delete. Use `getViewDetails` to retrieve column IDs.
 - `deleteDependentViews` (optional): Boolean. When `true`, deletes the column even when it has dependent views (reports, query tables, formulas that reference it). When `false` (default), the operation fails if dependent views exist. Use with caution — deleting a column with dependents will also delete those dependent views.
 
+**Returns (`data`):** `null`; the confirmation is in `messages`.
+
 **Tool call:**
-```
-execute_analytics_tool(
-    "deleteColumn",
-    {
-        "workspaceId": "<workspace_id>",
-        "viewId": "<table_id>",
-        "columnId": "<column_id>",
-        "deleteDependentViews": false
-    }
-)
+```js
+return await tools.deleteColumn({
+    "workspaceId": "<workspace_id>",
+    "viewId": "<table_id>",
+    "columnId": "<column_id>",
+    "deleteDependentViews": false
+})
 ```
 
 **Example 1 — Delete a column (fails if dependents exist):**
 
-```
-execute_analytics_tool(
-    "deleteColumn",
-    {
-        "workspaceId": "123456789",
-        "viewId": "987654321",
-        "columnId": "555666777"
-    }
-)
+```js
+return await tools.deleteColumn({
+    "workspaceId": "123456789",
+    "viewId": "987654321",
+    "columnId": "555666777"
+})
 ```
 
 **Example 2 — Force delete a column and its dependents:**
 
-```
-execute_analytics_tool(
-    "deleteColumn",
-    {
-        "workspaceId": "123456789",
-        "viewId": "987654321",
-        "columnId": "555666777",
-        "deleteDependentViews": true
-    }
-)
+```js
+return await tools.deleteColumn({
+    "workspaceId": "123456789",
+    "viewId": "987654321",
+    "columnId": "555666777",
+    "deleteDependentViews": true
+})
 ```
 
 > **Warning:** Setting `deleteDependentViews` to `true` will permanently delete all reports, query tables, formulas, and other views that reference this column. Always verify dependents before using this option.
@@ -233,24 +212,20 @@ Returns the current column definitions (schema) for a table or query table. Use 
 **Arguments:**
 - `viewId` (required): The ID of the table or query table whose schema you want to fetch.
 
-```
-execute_analytics_tool(
-    "getViewDetails",
-    {
-        "viewId": "<table_id>"
-    }
-)
+**Returns (`data`):** `ViewDetails`: `{ viewId, viewName, viewType, viewDesc, columns: [{ columnId, columnName, dataType, ... }], ... }`. Additional Zoho fields may be present.
+
+```js
+return await tools.getViewDetails({
+    "viewId": "<table_id>"
+})
 ```
 
 **Example:**
 
-```
-execute_analytics_tool(
-    "getViewDetails",
-    {
-        "viewId": "987654321"
-    }
-)
+```js
+return await tools.getViewDetails({
+    "viewId": "987654321"
+})
 ```
 
 > **Tip:** The `column_id` values returned here are what you'll pass as `sourceColumnId` / `targetColumnId` / `columnId` in lookup operations.

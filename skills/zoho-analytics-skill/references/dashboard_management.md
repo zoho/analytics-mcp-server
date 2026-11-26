@@ -28,34 +28,32 @@ Retrieves the complete design configuration of an existing dashboard. Use this b
 | `dashboardId` | string | Yes | ID of the dashboard to retrieve |
 | `orgId` | string | No | Organization ID. Defaults to configured `ORGID` if omitted |
 
-**Returns:** A JSON object with the full dashboard CONFIG:
+**Returns (`data`):** `{ dashboardConfig }`, where `dashboardConfig` is the full dashboard CONFIG:
+- `objId` — dashboard ID
 - `displayName` — dashboard name
+- `description`
 - `layout` — all cards with positions and type-specific fields
-- `settings` — behavior flags (if configured)
-- `themes` — visual theme (if configured)
+- `settings` — behavior flags (values are the strings `"true"` / `"false"`)
+- `themes` — visual theme
 
-Use the returned `layout`, `settings`, and `themes` objects directly as inputs to `updateDashboard` after making your targeted changes.
+Use the returned `layout` and `settings` as the basis for `updateDashboard` after making your targeted changes.
+
+> **`themes` is not round-trippable.** The shape returned here (for example `{ "default": "true", "layoutType": "2" }`) is rejected by `updateDashboard`, which requires `layoutType` as a number, a `type` of `solid` / `gradient` / `image`, and a `card` object. Omit `themes` from the update unless you are deliberately changing the theme.
 
 **Tool call:**
-```
-execute_analytics_tool(
-    "readDashboardMetadata",
-    {
-        "workspaceId": "<workspace_id>",
-        "dashboardId": "<dashboard_id>"
-    }
-)
+```js
+return await tools.readDashboardMetadata({
+    "workspaceId": "<workspace_id>",
+    "dashboardId": "<dashboard_id>"
+})
 ```
 
 **Example:**
-```
-execute_analytics_tool(
-    "readDashboardMetadata",
-    {
-        "workspaceId": "123456789",
-        "dashboardId": "987654321"
-    }
-)
+```js
+return await tools.readDashboardMetadata({
+    "workspaceId": "123456789",
+    "dashboardId": "987654321"
+})
 ```
 
 ---
@@ -80,42 +78,36 @@ Creates a new dashboard in the specified workspace. When creating a new dashboar
 | `themes` | Visual theme for the dashboard background and cards |
 | `orgId` | Organization ID. Defaults to configured `ORGID` if omitted |
 
-**Returns:** The numeric ID of the created dashboard on success.
+**Returns (`data`):** `{ "dashboardId": string }` - the ID of the created dashboard.
 
 **Tool call:**
-```
-execute_analytics_tool(
-    "createDashboard",
-    {
-        "workspaceId": "<workspace_id>",
-        "displayName": "<dashboard_name>",
-        "layout": { "<card_id>": { <card_object> }, ... },
-        "settings": { ... },   // optional
-        "themes": { ... }      // optional
-    }
-)
+```js
+return await tools.createDashboard({
+    "workspaceId": "<workspace_id>",
+    "displayName": "<dashboard_name>",
+    "layout": { "<card_id>": { <card_object> }, ... },
+    "settings": { ... },   // optional
+    "themes": { ... }      // optional
+})
 ```
 
 **Minimal example (one VIEW card, no settings/themes):**
-```
-execute_analytics_tool(
-    "createDashboard",
-    {
-        "workspaceId": "123456789",
-        "displayName": "Sales Overview",
-        "layout": {
-            "1": {
-                "type": "VIEW",
-                "viewName": "Monthly Revenue Chart",
-                "properties": {},
-                "width": 40,
-                "height": 20,
-                "left": 0,
-                "top": 0
-            }
+```js
+return await tools.createDashboard({
+    "workspaceId": "123456789",
+    "displayName": "Sales Overview",
+    "layout": {
+        "1": {
+            "type": "VIEW",
+            "viewName": "Monthly Revenue Chart",
+            "properties": {},
+            "width": 40,
+            "height": 20,
+            "left": 0,
+            "top": 0
         }
     }
-)
+})
 ```
 
 → For complete layout card types, field requirements, and grid rules, load [Dashboard Layout Reference](./dashboard_management_layout.md).  
@@ -139,19 +131,18 @@ Updates an existing dashboard. At least one of `displayName`, `layout`, `setting
 | `themes` | object | No | If provided, replaces ALL existing theme settings |
 | `orgId` | string | No | Organization ID. Defaults to configured `ORGID` if omitted |
 
+**Returns (`data`):** `null`; the confirmation is in `messages`.
+
 **Tool call:**
-```
-execute_analytics_tool(
-    "updateDashboard",
-    {
-        "workspaceId": "<workspace_id>",
-        "dashboardId": "<dashboard_id>",
-        "displayName": "<new_name>",      // optional
-        "layout": { ... },                // optional — full layout required if provided
-        "settings": { ... },              // optional
-        "themes": { ... }                 // optional
-    }
-)
+```js
+return await tools.updateDashboard({
+    "workspaceId": "<workspace_id>",
+    "dashboardId": "<dashboard_id>",
+    "displayName": "<new_name>",      // optional
+    "layout": { ... },                // optional — full layout required if provided
+    "settings": { ... },              // optional
+    "themes": { ... }                 // optional
+})
 ```
 
 → For layout card types, field requirements, and grid rules, load [Dashboard Layout Reference](./dashboard_management_layout.md).  
@@ -164,14 +155,11 @@ execute_analytics_tool(
 **Task:** Add a new chart card to an existing dashboard.
 
 **Step 1 — Read current config:**
-```
-execute_analytics_tool(
-    "readDashboardMetadata",
-    {
-        "workspaceId": "123456789",
-        "dashboardId": "987654321"
-    }
-)
+```js
+return await tools.readDashboardMetadata({
+    "workspaceId": "123456789",
+    "dashboardId": "987654321"
+})
 ```
 
 **Step 2 — Inspect the returned JSON.** Note the existing `layout` (all card IDs and positions), `settings`, and `themes`.
@@ -179,27 +167,24 @@ execute_analytics_tool(
 **Step 3 — Modify the layout** by adding a new card with a new unique ID (e.g. `"3"`) at a non-overlapping position. Keep all existing cards unchanged.
 
 **Step 4 — Submit the full updated layout:**
-```
-execute_analytics_tool(
-    "updateDashboard",
-    {
-        "workspaceId": "123456789",
-        "dashboardId": "987654321",
-        "layout": {
-            "1": { <existing card 1 — unchanged> },
-            "2": { <existing card 2 — unchanged> },
-            "3": {
-                "type": "VIEW",
-                "viewName": "Regional Sales Chart",
-                "properties": {},
-                "width": 40,
-                "height": 20,
-                "left": 40,
-                "top": 0
-            }
+```js
+return await tools.updateDashboard({
+    "workspaceId": "123456789",
+    "dashboardId": "987654321",
+    "layout": {
+        "1": { <existing card 1 — unchanged> },
+        "2": { <existing card 2 — unchanged> },
+        "3": {
+            "type": "VIEW",
+            "viewName": "Regional Sales Chart",
+            "properties": {},
+            "width": 40,
+            "height": 20,
+            "left": 40,
+            "top": 0
         }
     }
-)
+})
 ```
 
 > Omitting `settings` and `themes` here keeps them unchanged — only the provided top-level keys are replaced.

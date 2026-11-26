@@ -36,34 +36,30 @@ Creates a lookup relationship between a column in the source table and a column 
 - `relationshipType` (required): One of `ONE_TO_ONE`, `ONE_TO_MANY`, `MANY_TO_MANY`, `MANY_TO_ONE`.
 - `orgId` (optional): Organization ID. Defaults to the configured `ORGID` if not provided.
 
-```
-execute_analytics_tool(
-    "createLookup",
-    {
-        "workspaceId": "<workspace_id>",
-        "sourceTableId": "<source_table_id>",
-        "sourceColumnId": "<source_column_id>",
-        "targetTableId": "<target_table_id>",
-        "targetColumnId": "<target_column_id>",
-        "relationshipType": "<ONE_TO_ONE|ONE_TO_MANY|MANY_TO_MANY|MANY_TO_ONE>"
-    }
-)
+**Returns (`data`):** `null`; the confirmation is in `messages`.
+
+```js
+return await tools.createLookup({
+    "workspaceId": "<workspace_id>",
+    "sourceTableId": "<source_table_id>",
+    "sourceColumnId": "<source_column_id>",
+    "targetTableId": "<target_table_id>",
+    "targetColumnId": "<target_column_id>",
+    "relationshipType": "<ONE_TO_ONE|ONE_TO_MANY|MANY_TO_MANY|MANY_TO_ONE>"
+})
 ```
 
 **Example** — link `Orders.Customer ID` → `Customers.Customer ID` (many orders per customer):
 
-```
-execute_analytics_tool(
-    "createLookup",
-    {
-        "workspaceId": "123456789",
-        "sourceTableId": "111111111",
-        "sourceColumnId": "222222222",
-        "targetTableId": "333333333",
-        "targetColumnId": "444444444",
-        "relationshipType": "ONE_TO_MANY"
-    }
-)
+```js
+return await tools.createLookup({
+    "workspaceId": "123456789",
+    "sourceTableId": "111111111",
+    "sourceColumnId": "222222222",
+    "targetTableId": "333333333",
+    "targetColumnId": "444444444",
+    "relationshipType": "ONE_TO_MANY"
+})
 ```
 
 Here `Customers` is the source (one-side) and `Orders` is the target (many-side).
@@ -82,28 +78,24 @@ Removes an existing lookup relationship from a specific column in a table.
 
 > **Note:** This removes the lookup defined on `columnId` inside `viewId`. If you only know the column name, call `getViewDetails` first to resolve the column ID.
 
-```
-execute_analytics_tool(
-    "deleteLookup",
-    {
-        "workspaceId": "<workspace_id>",
-        "viewId": "<table_id>",
-        "columnId": "<column_id>"
-    }
-)
+**Returns (`data`):** `null`; the confirmation is in `messages`.
+
+```js
+return await tools.deleteLookup({
+    "workspaceId": "<workspace_id>",
+    "viewId": "<table_id>",
+    "columnId": "<column_id>"
+})
 ```
 
 **Example** — remove the lookup on `Customer ID` in the `Orders` table:
 
-```
-execute_analytics_tool(
-    "deleteLookup",
-    {
-        "workspaceId": "123456789",
-        "viewId": "333333333",
-        "columnId": "444444444"
-    }
-)
+```js
+return await tools.deleteLookup({
+    "workspaceId": "123456789",
+    "viewId": "333333333",
+    "columnId": "444444444"
+})
 ```
 
 ---

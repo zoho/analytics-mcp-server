@@ -24,43 +24,34 @@ Arguments:
 - `formulaNameContainsStr` (optional): Case-insensitive filter — returns only formula columns whose names contain this string.
 - `orgId` (optional): Organization ID. Defaults to the configured `ORGID`.
 
-```
-execute_analytics_tool(
-    "listCustomFormulaColumns",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableId": "<table_id>",
-        "formulaNameContainsStr": "<name_filter>"
-    }
-)
+```js
+return await tools.listCustomFormulaColumns({
+    "workspaceId": "<workspace_id>",
+    "tableId": "<table_id>",
+    "formulaNameContainsStr": "<name_filter>"
+})
 ```
 
 Example — list all formula columns on a table:
 
-```
-execute_analytics_tool(
-    "listCustomFormulaColumns",
-    {
-        "workspaceId": "123456789",
-        "tableId": "987654321"
-    }
-)
+```js
+return await tools.listCustomFormulaColumns({
+    "workspaceId": "123456789",
+    "tableId": "987654321"
+})
 ```
 
 Example — filter by name:
 
-```
-execute_analytics_tool(
-    "listCustomFormulaColumns",
-    {
-        "workspaceId": "123456789",
-        "tableId": "987654321",
-        "formulaNameContainsStr": "profit"
-    }
-)
+```js
+return await tools.listCustomFormulaColumns({
+    "workspaceId": "123456789",
+    "tableId": "987654321",
+    "formulaNameContainsStr": "profit"
+})
 ```
 
-Sample response:
+`data`: `{ formulas: CustomFormulaColumn[], count: number }`. Sample `data.formulas`:
 ```json
 [
     {
@@ -93,78 +84,63 @@ Arguments:
 - `description` (optional): A brief description of what the column represents.
 - `orgId` (optional): Organization ID. Defaults to the configured `ORGID`.
 
-```
-execute_analytics_tool(
-    "addCustomFormulaColumn",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableId": "<table_id>",
-        "formulaName": "<column_name>",
-        "expression": "<row_level_expression>",
-        "description": "<description>"
-    }
-)
+```js
+return await tools.addCustomFormulaColumn({
+    "workspaceId": "<workspace_id>",
+    "tableId": "<table_id>",
+    "formulaName": "<column_name>",
+    "expression": "<row_level_expression>",
+    "description": "<description>"
+})
 ```
 
 Example — multiply two columns:
 
-```
-execute_analytics_tool(
-    "addCustomFormulaColumn",
-    {
-        "workspaceId": "123456789",
-        "tableId": "987654321",
-        "formulaName": "Total Price",
-        "expression": "\"Price\" * \"Quantity\"",
-        "description": "Total price calculated as Price × Quantity"
-    }
-)
+```js
+return await tools.addCustomFormulaColumn({
+    "workspaceId": "123456789",
+    "tableId": "987654321",
+    "formulaName": "Total Price",
+    "expression": "\"Price\" * \"Quantity\"",
+    "description": "Total price calculated as Price × Quantity"
+})
 ```
 
 Example — conditional column (active/inactive flag):
 
-```
-execute_analytics_tool(
-    "addCustomFormulaColumn",
-    {
-        "workspaceId": "123456789",
-        "tableId": "987654321",
-        "formulaName": "Is Active",
-        "expression": "IF(\"Status\" = 'Active', 1, 0)"
-    }
-)
+```js
+return await tools.addCustomFormulaColumn({
+    "workspaceId": "123456789",
+    "tableId": "987654321",
+    "formulaName": "Is Active",
+    "expression": "IF(\"Status\" = 'Active', 1, 0)"
+})
 ```
 
 Example — concatenate columns:
 
-```
-execute_analytics_tool(
-    "addCustomFormulaColumn",
-    {
-        "workspaceId": "123456789",
-        "tableId": "876543210",
-        "formulaName": "Full Name",
-        "expression": "CONCAT(\"First Name\", ' ', \"Last Name\")",
-        "description": "Full name by combining First Name and Last Name"
-    }
-)
+```js
+return await tools.addCustomFormulaColumn({
+    "workspaceId": "123456789",
+    "tableId": "876543210",
+    "formulaName": "Full Name",
+    "expression": "CONCAT(\"First Name\", ' ', \"Last Name\")",
+    "description": "Full name by combining First Name and Last Name"
+})
 ```
 
 Example — handle nulls with IFNULL:
 
-```
-execute_analytics_tool(
-    "addCustomFormulaColumn",
-    {
-        "workspaceId": "123456789",
-        "tableId": "987654321",
-        "formulaName": "Adjusted Revenue",
-        "expression": "IFNULL(\"Revenue\", 0)"
-    }
-)
+```js
+return await tools.addCustomFormulaColumn({
+    "workspaceId": "123456789",
+    "tableId": "987654321",
+    "formulaName": "Adjusted Revenue",
+    "expression": "IFNULL(\"Revenue\", 0)"
+})
 ```
 
-Returns: A success message with the created formula column's ID.
+Returns (`data`): `{ "formulaId": string }` - the ID of the created formula column.
 
 
 ## 3. Edit a Custom Formula Column
@@ -179,35 +155,29 @@ Arguments:
 - `description` (optional): A new description for the formula column.
 - `orgId` (optional): Organization ID. Defaults to the configured `ORGID`.
 
-```
-execute_analytics_tool(
-    "editCustomFormulaColumn",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableId": "<table_id>",
-        "formulaId": "<formula_id>",
-        "expression": "<new_expression>",
-        "description": "<new_description>"
-    }
-)
+```js
+return await tools.editCustomFormulaColumn({
+    "workspaceId": "<workspace_id>",
+    "tableId": "<table_id>",
+    "formulaId": "<formula_id>",
+    "expression": "<new_expression>",
+    "description": "<new_description>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "editCustomFormulaColumn",
-    {
-        "workspaceId": "123456789",
-        "tableId": "987654321",
-        "formulaId": "333333333",
-        "expression": "(\"Revenue\" - \"Cost\") / NULLIF(\"Revenue\", 0) * 100",
-        "description": "Profit margin, safe against division by zero"
-    }
-)
+```js
+return await tools.editCustomFormulaColumn({
+    "workspaceId": "123456789",
+    "tableId": "987654321",
+    "formulaId": "333333333",
+    "expression": "(\"Revenue\" - \"Cost\") / NULLIF(\"Revenue\", 0) * 100",
+    "description": "Profit margin, safe against division by zero"
+})
 ```
 
-Returns: A success message confirming the formula column was updated.
+Returns (`data`): `null`; the confirmation is in `messages`.
 
 
 ## 4. Delete a Custom Formula Column
@@ -224,28 +194,22 @@ Important Notes:
 - Confirm the correct `formulaId` before proceeding — deletion cannot be undone.
 - Use `listCustomFormulaColumns` to verify the formula's name and ID before deleting.
 
-```
-execute_analytics_tool(
-    "deleteCustomFormulaColumn",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableId": "<table_id>",
-        "formulaId": "<formula_id>"
-    }
-)
+```js
+return await tools.deleteCustomFormulaColumn({
+    "workspaceId": "<workspace_id>",
+    "tableId": "<table_id>",
+    "formulaId": "<formula_id>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "deleteCustomFormulaColumn",
-    {
-        "workspaceId": "123456789",
-        "tableId": "987654321",
-        "formulaId": "333333333"
-    }
-)
+```js
+return await tools.deleteCustomFormulaColumn({
+    "workspaceId": "123456789",
+    "tableId": "987654321",
+    "formulaId": "333333333"
+})
 ```
 
-Returns: A success message confirming the formula column was deleted.
+Returns (`data`): `null`; the confirmation is in `messages`.

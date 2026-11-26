@@ -1,11 +1,21 @@
 import { z } from "zod";
 import { defineTool } from "../../tool-registry";
 import { getAnalyticsClient, config } from "../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../utils/common";
+import { retryWithFallback } from "../../utils/common";
+import { normalizeInvolvedViews } from "../../utils/data-util";
+import { ok, fail, failFromError } from "../../response";
+import { ViewSummaryDto, ColumnDto, InvolvedViewDto, NoData, listResult } from "../../dtos";
 
 // ---- Shared helpers ----
 
 const VIEW_RESULT_LIMIT = 100;
+const NO_VIEWS_FOUND = "No views found";
+
+const viewsResponse = (views: View[], note?: string) =>
+  ok(
+    { views, count: views.length },
+    [`Found ${views.length} view(s). Use data.views[].viewId with other operations.`, ...(note ? [note] : [])]
+  );
 
 type View = {
   viewId: string;
@@ -54,7 +64,7 @@ async function getViews(
   const viewList = await workspace.getViews(conf);
 
   if (!viewList || (Array.isArray(viewList) && viewList.length === 0)) {
-    return "No views found";
+    return NO_VIEWS_FOUND;
   }
 
   if (!fromRelevantViewsTool && Array.isArray(viewList) && viewList.length > VIEW_RESULT_LIMIT) {
@@ -64,8 +74,34 @@ async function getViews(
     );
   }
 
-  return viewList;
+  // Zoho returns the literal string "null" for views that are not in a folder
+  return (viewList as View[]).map((v) => (v.folderId === "null" ? { ...v, folderId: null } : v));
 }
+
+const ViewDetailsDto = z
+  .looseObject({
+    viewId: z.string().nullish(),
+    viewName: z.string().nullish(),
+    viewType: z
+      .string()
+      .nullish()
+      .describe("Table, QueryTable, AnalysisView (chart report), SummaryView, Pivot or Dashboard"),
+    viewDesc: z.string().nullish(),
+    workspaceId: z.string().nullish(),
+    createdTime: z.string().nullish().describe("Epoch milliseconds as a string"),
+    createdBy: z.string().nullish(),
+    createdByName: z.string().nullish(),
+    lastDesignModifiedTime: z.string().nullish().describe("Epoch milliseconds as a string"),
+    lastDesignModifiedBy: z.string().nullish(),
+    lastDesignModifiedByName: z.string().nullish(),
+    rowCount: z.number().nullish().describe("Tables and query tables only"),
+    columns: z.array(ColumnDto).optional().describe("Columns of the view (tables and query tables only)"),
+    involvedViews: z
+      .array(InvolvedViewDto)
+      .optional()
+      .describe("Views this view is built on (query tables, reports, dashboards); absent for plain tables"),
+  })
+  .meta({ id: "ViewDetails", description: "Details of a view; additional Zoho fields may be present" });
 
 // ---- Tool Registrations ----
 
@@ -101,6 +137,7 @@ defineTool({
     viewContainsStr: z.string().optional(),
     allowedViewTypesIds: z.array(z.number()).optional(),
   },
+  returns: listResult("views", ViewSummaryDto),
   handler: async (
     { workspaceId, naturalLanguageQuery, viewContainsStr, allowedViewTypesIds },
     ctx
@@ -114,14 +151,19 @@ defineTool({
           // Simple string-match path (or no query provided)
           if ((view_str && view_str.trim() !== "") || !natLangQuery || natLangQuery.trim() === "") {
             const views = await getViews(org_id, workspace, allowed_view_types_ids ?? [0, 6], view_str, false);
-            return ToolResponse(typeof views === "string" ? views : JSON.stringify(views));
+            if (typeof views === "string") {
+              return views === NO_VIEWS_FOUND
+                ? ok({ views: [], count: 0 }, "No views found in the workspace for the given criteria.")
+                : fail({ message: views, path: "viewContainsStr" });
+            }
+            return viewsResponse(views);
           }
 
           // RAG search path
           const initialViews = await getViews(org_id, workspace, allowed_view_types_ids ?? [0, 6], undefined, true);
 
           if (typeof initialViews === "string" || !Array.isArray(initialViews) || initialViews.length === 0) {
-            return ToolResponse("No views found in the workspace.");
+            return ok({ views: [], count: 0 }, "No views found in the workspace.");
           }
 
           const viewIdToDetails: Record<string, View> = {};
@@ -192,7 +234,7 @@ Strictly provide your output in the following JSON format:
                 });
 
                 if (response.content.type !== "text") {
-                  return ToolResponse("Error in processing the RAG response. Please try again.");
+                  return fail("Error in processing the RAG response. Please try again.");
                 }
 
                 console.log(
@@ -233,11 +275,14 @@ Strictly provide your output in the following JSON format:
 
           if (!sampleSupported) {
             console.log("Using fallback mechanism: Returning first 20 views from the workspace");
-            return ToolResponse(JSON.stringify(transformedViewList.slice(0, 20)));
+            return viewsResponse(
+              transformedViewList.slice(0, 20),
+              "Natural language search is not supported by this client; returned the first 20 views of the workspace without relevance ranking."
+            );
           }
 
           console.log(`Final result: ${currentViewList.length} views after ${epoch - 1} epochs`);
-          return ToolResponse(JSON.stringify(currentViewList));
+          return viewsResponse(currentViewList, "Views are ranked by relevance to the natural language query.");
         },
         workspaceId,
         naturalLanguageQuery,
@@ -245,7 +290,7 @@ Strictly provide your output in the following JSON format:
         allowedViewTypesIds
       );
     } catch (error) {
-      return logAndReturnError(error, `Error in search_views: ${(error as Error).message || error}`);
+      return failFromError(error, "Error in searchViews");
     }
   },
 });
@@ -267,6 +312,7 @@ defineTool({
   args: {
     viewId: z.string().describe("The ID of the view for which to fetch details"),
   },
+  returns: ViewDetailsDto,
   handler: async ({ viewId }) => {
     try {
       const analyticsClient = getAnalyticsClient();
@@ -289,9 +335,11 @@ defineTool({
           });
         }
       }
-      return ToolResponse(`Retrieved details for view ID: ${viewId}\n${JSON.stringify(viewDetails)}`);
+      if (!viewDetails) return fail({ message: `No details found for view '${viewId}'.`, path: "viewId" });
+      normalizeInvolvedViews(viewDetails as any);
+      return ok(viewDetails as z.infer<typeof ViewDetailsDto>, `Retrieved details for view ID: ${viewId}`);
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while fetching view details");
+      return failFromError(err, "An error occurred while fetching view details");
     }
   },
 });
@@ -311,6 +359,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided"),
   },
+  returns: NoData,
   handler: async ({ workspaceId, viewId, orgId }) => {
     try {
       if (!orgId) {
@@ -324,12 +373,12 @@ defineTool({
           const ac = getAnalyticsClient();
           const viewInstance = ac.getViewInstance(org_id || "", workspace, viewId);
           await viewInstance.delete();
-          return ToolResponse(`View '${viewId}' deleted successfully.`);
+          return ok(null, `View '${viewId}' deleted successfully.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while deleting the view");
+      return failFromError(err, "An error occurred while deleting the view");
     }
   },
 });

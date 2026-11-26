@@ -22,28 +22,22 @@ Executes a SQL SELECT query on the specified workspace and returns the top N row
 - Do not use more than one level of nested sub-queries.
 - Combine multiple lookups into a single query using JOINs, UNIONs, or sub-queries where possible.
 
-**Returns:** Top N rows as JSON with `columns` and `rows` arrays, or an error message if the query fails.
+**Returns (`data`):** `{ columns: string[], rows: string[][], rowCount: number, truncated: boolean, rowLimit: number }`. Each row is an array of string values aligned with `columns`. When `truncated` is `true`, the row cap was reached and more rows may exist; page with `LIMIT`/`OFFSET`. On failure, `status` is `"error"`.
 
-```
-execute_analytics_tool(
-    "queryData",
-    {
-        "workspaceId": "<workspace_id>",
-        "sqlQuery": "<mysql_compatible_select_query>"
-    }
-)
+```js
+return await tools.queryData({
+    "workspaceId": "<workspace_id>",
+    "sqlQuery": "<mysql_compatible_select_query>"
+})
 ```
 
 **Example:**
 
-```
-execute_analytics_tool(
-    "queryData",
-    {
-        "workspaceId": "123456789",
-        "sqlQuery": "SELECT product_name, SUM(sales) AS total_sales FROM \"sales_data\" GROUP BY product_name ORDER BY total_sales DESC LIMIT 10"
-    }
-)
+```js
+return await tools.queryData({
+    "workspaceId": "123456789",
+    "sqlQuery": "SELECT product_name, SUM(sales) AS total_sales FROM \"sales_data\" GROUP BY product_name ORDER BY total_sales DESC LIMIT 10"
+})
 ```
 
 ---
@@ -64,33 +58,27 @@ Use this when you need to take a snapshot of a view's data for archiving, furthe
 - The tool returns the **full file path** of the saved CSV — use this path if you need to read the file contents afterwards.
 - This is a full-view export. To retrieve a filtered subset of data, use `queryData` instead.
 
-**Returns:** A success message with the file path where the export was saved, or an error message if the export fails.
+**Returns (`data`):** `{ "filePath": string }` - the path where the export was saved.
 
-```
-execute_analytics_tool(
-    "exportData",
-    {
-        "workspaceId": "<workspace_id>",
-        "viewId": "<view_id>"
-    }
-)
+```js
+return await tools.exportData({
+    "workspaceId": "<workspace_id>",
+    "viewId": "<view_id>"
+})
 ```
 
 **Example:**
 
-```
-execute_analytics_tool(
-    "exportData",
-    {
-        "workspaceId": "123456789",
-        "viewId": "456789123"
-    }
-)
+```js
+return await tools.exportData({
+    "workspaceId": "123456789",
+    "viewId": "456789123"
+})
 ```
 
 **Sample response:**
-```
-View exported successfully. File saved to: /data/exports/export_456789123_1718000000000.csv
+```json
+{"status": "success", "messages": ["View exported successfully. File saved to: /data/exports/export_456789123_1718000000000.csv"], "errors": [], "data": {"filePath": "/data/exports/export_456789123_1718000000000.csv"}}
 ```
 
 ---
@@ -116,46 +104,39 @@ Imports rows into an existing table within a workspace. Data can be supplied inl
 - If both `data` and `filePath` are provided, `filePath` takes precedence.
 - Column keys in `data` (or column headers in the CSV/JSON file) must exactly match the column names defined in the target table.
 
-```
-execute_analytics_tool(
-    "importData",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableId": "<table_id>",
-        "data": [<json_objects>],
-        "filePath": "<absolute_local_file_path>",
-        "fileType": "<csv|json>",
-        "orgId": "<org_id>"
-    }
-)
+**Returns (`data`):** `{ "summary": ImportSummary }` - the import summary reported by Zoho Analytics (e.g. `totalRowCount`, `successRowCount`, `warnings`, `importErrors`; fields may vary).
+
+```js
+return await tools.importData({
+    "workspaceId": "<workspace_id>",
+    "tableId": "<table_id>",
+    "data": [<json_objects>],
+    "filePath": "<absolute_local_file_path>",
+    "fileType": "<csv|json>",
+    "orgId": "<org_id>"
+})
 ```
 
 **Example — inline JSON:**
 
-```
-execute_analytics_tool(
-    "importData",
-    {
-        "workspaceId": "123456789",
-        "tableId": "456789123",
-        "data": [
-            {"Order ID": "ORD-001", "Customer ID": "CUST-42", "Amount": 149.99, "Order Date": "2024-06-01"},
-            {"Order ID": "ORD-002", "Customer ID": "CUST-17", "Amount": 89.50,  "Order Date": "2024-06-02"}
-        ]
-    }
-)
+```js
+return await tools.importData({
+    "workspaceId": "123456789",
+    "tableId": "456789123",
+    "data": [
+        {"Order ID": "ORD-001", "Customer ID": "CUST-42", "Amount": 149.99, "Order Date": "2024-06-01"},
+        {"Order ID": "ORD-002", "Customer ID": "CUST-17", "Amount": 89.50,  "Order Date": "2024-06-02"}
+    ]
+})
 ```
 
 **Example — local CSV file:**
 
-```
-execute_analytics_tool(
-    "importData",
-    {
-        "workspaceId": "123456789",
-        "tableId": "456789123",
-        "filePath": "/tmp/orders_june.csv",
-        "fileType": "csv"
-    }
-)
+```js
+return await tools.importData({
+    "workspaceId": "123456789",
+    "tableId": "456789123",
+    "filePath": "/tmp/orders_june.csv",
+    "fileType": "csv"
+})
 ```

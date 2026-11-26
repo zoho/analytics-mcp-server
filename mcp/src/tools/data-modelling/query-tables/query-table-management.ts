@@ -1,7 +1,34 @@
 import { z } from "zod";
 import { defineTool } from "../../../tool-registry";
 import { getAnalyticsClient, config } from "../../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../../utils/common";
+import { retryWithFallback } from "../../../utils/common";
+import { normalizeInvolvedViews } from "../../../utils/data-util";
+import { ok, fail, failFromError } from "../../../response";
+import { idResult, NoData, ColumnDto, InvolvedViewDto } from "../../../dtos";
+
+const QueryTableDetailsDto = z
+  .looseObject({
+    viewId: z.string().nullish(),
+    viewName: z.string().nullish(),
+    viewDesc: z.string().nullish(),
+    sqlQuery: z.string().nullish().describe("The SQL query that defines the query table"),
+    workspaceId: z.string().nullish(),
+    orgId: z.string().nullish(),
+    createdTime: z.string().nullish().describe("Epoch milliseconds as a string"),
+    createdBy: z.string().nullish(),
+    createdByName: z.string().nullish(),
+    createdByZuId: z.string().nullish(),
+    lastDesignModifiedTime: z.string().nullish().describe("Epoch milliseconds as a string"),
+    lastDesignModifiedBy: z.string().nullish(),
+    lastDesignModifiedByName: z.string().nullish(),
+    lastDesignModifiedByZuId: z.string().nullish(),
+    involvedViews: z.array(InvolvedViewDto).optional().describe("Tables / views the query reads from"),
+    columns: z
+      .array(ColumnDto)
+      .optional()
+      .describe("Columns of the query table. Unlike getViewDetails, also includes dataTypeId, columnIndex, defaultValue, pkTableName, pkColumnName and formulaDisplayName"),
+  })
+  .meta({ id: "QueryTableDetails", description: "Details of a query table; additional Zoho fields may be present" });
 
 // ---- Tool Registrations ----
 
@@ -17,6 +44,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided."),
   },
+  returns: idResult("tableId", "ID of the newly created query table"),
   handler: async ({ workspaceId, tableName, query, orgId }) => {
     try {
       if (!orgId) {
@@ -31,14 +59,14 @@ defineTool({
           const workspaceInst = analyticsClient.getWorkspaceInstance(org_id, workspace);
           const configParam = {};
           const tableId = await workspaceInst.createQueryTable(sql, table, configParam);
-          return ToolResponse(`Query table '${table}' created successfully. Table Id: ${tableId}`);
+          return ok({ tableId: String(tableId) }, `Query table '${table}' created successfully. Use data.tableId as the view ID in other operations.`);
         },
         workspaceId,
         tableName,
         query
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while creating the query table");
+      return failFromError(err, "An error occurred while creating the query table");
     }
   },
 });
@@ -68,6 +96,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided."),
   },
+  returns: NoData,
   handler: async ({ workspaceId, viewId, sqlQuery, orgId }) => {
     try {
       if (!orgId) {
@@ -81,14 +110,14 @@ defineTool({
           const analyticsClient = getAnalyticsClient();
           const workspaceInst = analyticsClient.getWorkspaceInstance(org_id, workspace);
           await workspaceInst.editQueryTable(view, sql);
-          return ToolResponse(`Query table '${view}' updated successfully.`);
+          return ok(null, `Query table '${view}' updated successfully.`);
         },
         workspaceId,
         viewId,
         sqlQuery
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while editing the query table");
+      return failFromError(err, "An error occurred while editing the query table");
     }
   },
 });
@@ -115,6 +144,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization to which the workspace belongs. Defaults to config.ORGID if not provided."),
   },
+  returns: QueryTableDetailsDto,
   handler: async ({ workspaceId, queryTableId, orgId }) => {
     try {
       if (!orgId) {
@@ -128,13 +158,14 @@ defineTool({
           const ac = getAnalyticsClient();
           const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
           const details = await (workspaceInst as any).getQueryTableDetails(qtId);
-          return ToolResponse(JSON.stringify(details));
+          if (!details) return fail({ message: `No details found for query table '${qtId}'.`, path: "queryTableId" });
+          return ok(normalizeInvolvedViews(details as any), `Retrieved details of query table '${qtId}'.`);
         },
         workspaceId,
         queryTableId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while fetching the query table details");
+      return failFromError(err, "An error occurred while fetching the query table details");
     }
   },
 });

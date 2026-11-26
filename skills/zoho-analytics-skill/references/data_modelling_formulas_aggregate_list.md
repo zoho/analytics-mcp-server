@@ -13,44 +13,37 @@ Returns aggregate formulas defined in a workspace or on a specific table. Use th
 
 ### Tool Call
 
-```
-execute_analytics_tool(
-    "listAggregateFormulas",
-    {
-        "workspaceId": "<workspace_id>",
-        "viewId": "<table_id>",
-        "formulaNameContainsStr": "<name_filter>"
-    }
-)
+```js
+return await tools.listAggregateFormulas({
+    "workspaceId": "<workspace_id>",
+    "viewId": "<table_id>",
+    "formulaNameContainsStr": "<name_filter>"
+})
 ```
 
 ### Examples
 
 Example — list all aggregate formulas in a workspace:
 
-```
-execute_analytics_tool(
-    "listAggregateFormulas",
-    {
-        "workspaceId": "123456789"
-    }
-)
+```js
+return await tools.listAggregateFormulas({
+    "workspaceId": "123456789"
+})
 ```
 
 Example — list formulas on a specific table, filtered by name:
 
-```
-execute_analytics_tool(
-    "listAggregateFormulas",
-    {
-        "workspaceId": "123456789",
-        "viewId": "987654321",
-        "formulaNameContainsStr": "revenue"
-    }
-)
+```js
+return await tools.listAggregateFormulas({
+    "workspaceId": "123456789",
+    "viewId": "987654321",
+    "formulaNameContainsStr": "revenue"
+})
 ```
 
 ### Sample Response
+
+`data`: `{ formulas: AggregateFormula[], count: number }`. Sample `data.formulas`:
 
 ```json
 [

@@ -28,44 +28,38 @@ Arguments (passed to `createReport`):
 - For `data` entries, prefer aggregate operations (`sum`, `count`, `average`, `min`, `max`) — these are the values being summarized.
 - As with Create Summary (and unlike Create Chart), every `row`/`column`/`data` entry requires its own `tableName` — see [Summary](./summary.md) and [Charts](./charts.md).
 
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableName": "<table_name>",
-        "reportName": "<report_name>",
-        "reportType": "pivot",
-        "pivotConfig": {
-            "row": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}],
-            "column": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}],
-            "data": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}]
-        },
-        "filters": [<filter_objects>]
-    }
-)
+```js
+return await tools.createReport({
+    "workspaceId": "<workspace_id>",
+    "tableName": "<table_name>",
+    "reportName": "<report_name>",
+    "reportType": "pivot",
+    "pivotConfig": {
+        "row": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}],
+        "column": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}],
+        "data": [{"columnName": "<column_name>", "tableName": "<table_name>", "operation": "<operation>"}]
+    },
+    "filters": [<filter_objects>]
+})
 ```
 
 Example — sales by region (rows) and month (columns):
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Sales Data",
-        "reportName": "Sales Pivot by Region and Month",
-        "reportType": "pivot",
-        "pivotConfig": {
-            "row": [
-                {"columnName": "Region", "tableName": "Sales Data", "operation": "actual"}
-            ],
-            "column": [
-                {"columnName": "Order Date", "tableName": "Sales Data", "operation": "month"}
-            ],
-            "data": [
-                {"columnName": "Sales Amount", "tableName": "Sales Data", "operation": "sum"}
-            ]
-        }
+```js
+return await tools.createReport({
+    "workspaceId": "123456789",
+    "tableName": "Sales Data",
+    "reportName": "Sales Pivot by Region and Month",
+    "reportType": "pivot",
+    "pivotConfig": {
+        "row": [
+            {"columnName": "Region", "tableName": "Sales Data", "operation": "actual"}
+        ],
+        "column": [
+            {"columnName": "Order Date", "tableName": "Sales Data", "operation": "month"}
+        ],
+        "data": [
+            {"columnName": "Sales Amount", "tableName": "Sales Data", "operation": "sum"}
+        ]
     }
-)
+})
 ```
