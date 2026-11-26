@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "../../tool-registry";
 import { getAnalyticsClient, config } from "../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../utils/common";
+import { retryWithFallback } from "../../utils/common";
+import { ok, fail, failFromError } from "../../response";
+import { NoData, idResult } from "../../dtos";
 
 // ---- Shared Zod schemas for card and theme structures ----
 
@@ -238,6 +240,25 @@ const themesSchema = z
       "Omit the entire themes object to use server defaults."
   );
 
+const DashboardConfigDto = z.looseObject({
+  objId: z.string().nullish().describe("Dashboard ID"),
+  displayName: z.string().nullish(),
+  description: z.string().nullish(),
+  layout: z
+    .record(z.string(), z.any())
+    .optional()
+    .describe("Cards keyed by card number: { type, width, height, left, top, viewName?, content?, properties? }"),
+  settings: z.any().optional().describe("Behavior flags; values are the strings \"true\" / \"false\""),
+  themes: z.any().optional().describe("Visual theme. Its shape differs from the themes accepted by updateDashboard"),
+});
+
+const DashboardMetadataDto = z
+  .object({ dashboardConfig: DashboardConfigDto })
+  .meta({
+    id: "DashboardMetadata",
+    description: "Dashboard CONFIG as returned by Zoho Analytics, wrapped in `dashboardConfig`",
+  });
+
 // ---- Tool Registrations ----
 
 defineTool({
@@ -261,8 +282,8 @@ defineTool({
     - orgId (str | optional): Organization ID. Defaults to config.ORGID if not provided.
 
     4. Returns:
-    - A JSON string with the full dashboard CONFIG: displayName, layout, settings, themes.
-    - Use the returned layout/settings/themes objects directly as inputs to updateDashboard.
+    - { dashboardConfig: { objId, displayName, description, layout, settings, themes } }.
+    - Modify layout / settings and submit them via updateDashboard. The returned themes shape is not accepted by updateDashboard, so omit themes unless changing the theme.
   `,
   args: {
     workspaceId: z.string().describe("The numeric ID of the workspace containing the dashboard."),
@@ -272,6 +293,7 @@ defineTool({
       .optional()
       .describe("The organization ID. Defaults to config.ORGID if not provided."),
   },
+  returns: DashboardMetadataDto,
   handler: async ({ workspaceId, dashboardId, orgId }) => {
     try {
       if (!orgId) {
@@ -285,12 +307,15 @@ defineTool({
           const ac = getAnalyticsClient();
           const dashboardInst = ac.getDashboardInstance(org_id, workspace, dashboardId);
           const metadata = await (dashboardInst as any).getMetadata();
-          return ToolResponse(JSON.stringify(metadata, null, 2));
+          return ok(
+            metadata,
+            "Modify dashboardConfig.layout / settings and submit them through updateDashboard (read-modify-write). Do not pass dashboardConfig.themes back unchanged: its shape is not accepted by updateDashboard."
+          );
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while retrieving the dashboard metadata");
+      return failFromError(err, "An error occurred while retrieving the dashboard metadata");
     }
   },
 });
@@ -345,7 +370,7 @@ defineTool({
     All color fields must be hex strings (e.g. "#333542"), NOT integers.
 
     -- Returns ----------------------------------------------------------------------
-    The numeric ID of the created dashboard on success.
+    data.dashboardId: the numeric ID of the created dashboard.
   `,
   args: {
     workspaceId: z
@@ -373,6 +398,7 @@ defineTool({
       .optional()
       .describe("The organization ID. Defaults to config.ORGID if not provided."),
   },
+  returns: idResult("dashboardId", "ID of the newly created dashboard"),
   handler: async ({ workspaceId, displayName, layout, settings, themes, orgId }) => {
     try {
       if (!orgId) {
@@ -391,12 +417,12 @@ defineTool({
             settings ?? null,
             themes ?? null
           );
-          return ToolResponse(`Dashboard created successfully. Dashboard ID: ${dashboardId}`);
+          return ok({ dashboardId: String(dashboardId) }, "Dashboard created successfully. Use data.dashboardId with readDashboardMetadata / updateDashboard.");
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while creating the dashboard");
+      return failFromError(err, "An error occurred while creating the dashboard");
     }
   },
 });
@@ -446,7 +472,7 @@ defineTool({
     and the card object. Only one background sub-object must be present.
 
     -- Returns ----------------------------------------------------------------------
-    A success message on completion, or an error message describing the failure.
+    data is null on success (see messages); failures are reported in errors.
   `,
   args: {
     workspaceId: z
@@ -479,6 +505,7 @@ defineTool({
       .optional()
       .describe("The organization ID. Defaults to config.ORGID if not provided."),
   },
+  returns: NoData,
   handler: async ({ workspaceId, dashboardId, displayName, layout, settings, themes, orgId }) => {
     try {
       if (!orgId) {
@@ -487,7 +514,7 @@ defineTool({
 
       // Ensure at least one field is being updated
       if (!displayName && !layout && !settings && !themes) {
-        return ToolResponse(
+        return fail(
           "No update fields provided. Please supply at least one of: displayName, layout, settings, or themes."
         );
       }
@@ -498,19 +525,20 @@ defineTool({
         "WORKSPACE",
         async (org_id, workspace) => {
           const ac = getAnalyticsClient();
-          const dashboardInst = ac.getDashboardInstance(org_id, workspace, dashboardId);
-          await (dashboardInst as any).updateDashboard(
-            displayName ?? null,
-            layout ?? null,
-            settings ?? null,
-            themes ?? null
-          );
-          return ToolResponse("Dashboard updated successfully.");
+          // The Update Dashboard CONFIG rejects `displayName` (error 8542), so a rename goes through the view API.
+          if (displayName) {
+            await ac.getViewInstance(org_id, workspace, dashboardId).rename(displayName);
+          }
+          if (layout || settings || themes) {
+            const dashboardInst = ac.getDashboardInstance(org_id, workspace, dashboardId);
+            await (dashboardInst as any).updateDashboard(null, layout ?? null, settings ?? null, themes ?? null);
+          }
+          return ok(null, "Dashboard updated successfully.");
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while updating the dashboard");
+      return failFromError(err, "An error occurred while updating the dashboard");
     }
   },
 });

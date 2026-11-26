@@ -83,28 +83,25 @@ Each entry in `axisColumns` is an object:
 
 ## Tool Call Shape
 
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableName": "<table_name>",
-        "reportName": "<report_name>",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "<chart_type>",
-            "axisColumns": [
-                {
-                    "type": "<xAxis|yAxis|colorAxis|sizeAxis|textAxis>",
-                    "columnName": "<column_name>",
-                    "operation": "<operation>",
-                    "tableName": "<table_name>"   // optional
-                }
-            ]
-        },
-        "filters": [<filter_objects>]   // optional — see filters.md
-    }
-)
+```js
+return await tools.createReport({
+    "workspaceId": "<workspace_id>",
+    "tableName": "<table_name>",
+    "reportName": "<report_name>",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "<chart_type>",
+        "axisColumns": [
+            {
+                "type": "<xAxis|yAxis|colorAxis|sizeAxis|textAxis>",
+                "columnName": "<column_name>",
+                "operation": "<operation>",
+                "tableName": "<table_name>"   // optional
+            }
+        ]
+    },
+    "filters": [<filter_objects>]   // optional — see filters.md
+})
 ```
 
 ---
@@ -112,103 +109,88 @@ execute_analytics_tool(
 ## Examples
 
 **Example 1 — Total sales by product category (bar chart):**
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Sales Data",
-        "reportName": "Sales by Category",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "bar",
-            "axisColumns": [
-                {"type": "xAxis", "columnName": "Product Category", "operation": "actual"},
-                {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
-            ]
-        }
+```js
+return await tools.createReport({
+    "workspaceId": "123456789",
+    "tableName": "Sales Data",
+    "reportName": "Sales by Category",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "bar",
+        "axisColumns": [
+            {"type": "xAxis", "columnName": "Product Category", "operation": "actual"},
+            {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
+        ]
     }
-)
+})
 ```
 
 **Example 2 — Monthly sales trend (line chart with date granularity):**
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Sales Data",
-        "reportName": "Monthly Sales Trend",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "line",
-            "axisColumns": [
-                {"type": "xAxis", "columnName": "Order Date", "operation": "monthYear"},
-                {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
-            ]
-        }
+```js
+return await tools.createReport({
+    "workspaceId": "123456789",
+    "tableName": "Sales Data",
+    "reportName": "Monthly Sales Trend",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "line",
+        "axisColumns": [
+            {"type": "xAxis", "columnName": "Order Date", "operation": "monthYear"},
+            {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
+        ]
     }
-)
+})
 ```
 
 **Example 3 — Sales vs. discount as a scatter plot (raw values):**
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Sales Data",
-        "reportName": "Sales vs Discount",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "scatter",
-            "axisColumns": [
-                {"type": "xAxis", "columnName": "Discount", "operation": "actual"},
-                {"type": "yAxis", "columnName": "Sales Amount", "operation": "actual"}
-            ]
-        }
+```js
+return await tools.createReport({
+    "workspaceId": "123456789",
+    "tableName": "Sales Data",
+    "reportName": "Sales vs Discount",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "scatter",
+        "axisColumns": [
+            {"type": "xAxis", "columnName": "Discount", "operation": "actual"},
+            {"type": "yAxis", "columnName": "Sales Amount", "operation": "actual"}
+        ]
     }
-)
+})
 ```
 
 **Example 4 — Bubble chart with size axis (sales, orders, profit):**
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Sales Data",
-        "reportName": "Sales Bubble Chart",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "bubble",
-            "axisColumns": [
-                {"type": "xAxis", "columnName": "Product Category", "operation": "actual"},
-                {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"},
-                {"type": "sizeAxis", "columnName": "Quantity", "operation": "sum"}
-            ]
-        }
+```js
+return await tools.createReport({
+    "workspaceId": "123456789",
+    "tableName": "Sales Data",
+    "reportName": "Sales Bubble Chart",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "bubble",
+        "axisColumns": [
+            {"type": "xAxis", "columnName": "Product Category", "operation": "actual"},
+            {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"},
+            {"type": "sizeAxis", "columnName": "Quantity", "operation": "sum"}
+        ]
     }
-)
+})
 ```
 
 **Example 5 — Sales by region and category with color segmentation:**
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Sales Data",
-        "reportName": "Sales by Region & Category",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "bar",
-            "axisColumns": [
-                {"type": "xAxis", "columnName": "Region", "operation": "actual"},
-                {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"},
-                {"type": "colorAxis", "columnName": "Product Category", "operation": "actual"}
-            ]
-        }
+```js
+return await tools.createReport({
+    "workspaceId": "123456789",
+    "tableName": "Sales Data",
+    "reportName": "Sales by Region & Category",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "bar",
+        "axisColumns": [
+            {"type": "xAxis", "columnName": "Region", "operation": "actual"},
+            {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"},
+            {"type": "colorAxis", "columnName": "Product Category", "operation": "actual"}
+        ]
     }
-)
+})
 ```

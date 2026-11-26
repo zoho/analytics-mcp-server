@@ -46,69 +46,56 @@ Creates a new query table in a workspace using a SQL SELECT query.
 
 5. **MySQL syntax**: Use MySQL-compatible SQL. The same rules that apply to the `queryData` tool apply here.
 
+**Returns (`data`):** `{ "tableId": string }` - the ID of the created query table.
+
 **Tool call:**
-```
-execute_analytics_tool(
-    "createQueryTable",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableName": "<query_table_name>",
-        "query": "<mysql_compatible_select_query>",
-        "orgId": "<org_id>"
-    }
-)
+```js
+return await tools.createQueryTable({
+    "workspaceId": "<workspace_id>",
+    "tableName": "<query_table_name>",
+    "query": "<mysql_compatible_select_query>",
+    "orgId": "<org_id>"
+})
 ```
 
 **Example 1 — Monthly Revenue Summary:**
 
-```
-execute_analytics_tool(
-    "createQueryTable",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Monthly Revenue Summary",
-        "query": "SELECT DATE_FORMAT(\"Order Date\", '%Y-%m') AS month, SUM(Amount) AS total_revenue FROM Orders GROUP BY month ORDER BY month"
-    }
-)
+```js
+return await tools.createQueryTable({
+    "workspaceId": "123456789",
+    "tableName": "Monthly Revenue Summary",
+    "query": "SELECT DATE_FORMAT(\"Order Date\", '%Y-%m') AS month, SUM(Amount) AS total_revenue FROM Orders GROUP BY month ORDER BY month"
+})
 ```
 
 **Example 2 — Join Orders and Customers:**
 
-```
-execute_analytics_tool(
-    "createQueryTable",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Orders with Customer Details",
-        "query": "SELECT o.\"Order ID\", o.\"Order Date\", o.Amount, c.\"Customer Name\", c.Region FROM Orders o INNER JOIN Customers c ON o.\"Customer ID\" = c.\"Customer ID\""
-    }
-)
+```js
+return await tools.createQueryTable({
+    "workspaceId": "123456789",
+    "tableName": "Orders with Customer Details",
+    "query": "SELECT o.\"Order ID\", o.\"Order Date\", o.Amount, c.\"Customer Name\", c.Region FROM Orders o INNER JOIN Customers c ON o.\"Customer ID\" = c.\"Customer ID\""
+})
 ```
 
 **Example 3 — Filtered View (Last Year Orders):**
 
-```
-execute_analytics_tool(
-    "createQueryTable",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Last Year Orders",
-        "query": "SELECT * FROM Orders WHERE \"Order Date\" >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)"
-    }
-)
+```js
+return await tools.createQueryTable({
+    "workspaceId": "123456789",
+    "tableName": "Last Year Orders",
+    "query": "SELECT * FROM Orders WHERE \"Order Date\" >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)"
+})
 ```
 
 **Example 4 — Aggregated by Region:**
 
-```
-execute_analytics_tool(
-    "createQueryTable",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Revenue by Region",
-        "query": "SELECT Region, COUNT(*) AS order_count, SUM(Amount) AS total_revenue, AVG(Amount) AS avg_order_value FROM Orders GROUP BY Region"
-    }
-)
+```js
+return await tools.createQueryTable({
+    "workspaceId": "123456789",
+    "tableName": "Revenue by Region",
+    "query": "SELECT Region, COUNT(*) AS order_count, SUM(Amount) AS total_revenue, AVG(Amount) AS avg_order_value FROM Orders GROUP BY Region"
+})
 ```
 
 ---
@@ -129,29 +116,23 @@ Fetches the details of a query table, including its SQL query and column structu
 | `orgId` | string | No | Organization ID. Defaults to configured `ORGID` if omitted |
 
 **Tool call:**
-```
-execute_analytics_tool(
-    "getQueryTableDetails",
-    {
-        "workspaceId": "<workspace_id>",
-        "queryTableId": "<query_table_id>",
-        "orgId": "<org_id>"
-    }
-)
+```js
+return await tools.getQueryTableDetails({
+    "workspaceId": "<workspace_id>",
+    "queryTableId": "<query_table_id>",
+    "orgId": "<org_id>"
+})
 ```
 
-**Returns:** A JSON object with the query table's details (view name, SQL query, columns).
+**Returns (`data`):** The query table's details (view name, SQL query, columns).
 
 **Example:**
 
-```
-execute_analytics_tool(
-    "getQueryTableDetails",
-    {
-        "workspaceId": "123456789",
-        "queryTableId": "987654321"
-    }
-)
+```js
+return await tools.getQueryTableDetails({
+    "workspaceId": "123456789",
+    "queryTableId": "987654321"
+})
 ```
 
 ---
@@ -179,6 +160,8 @@ Replaces the SQL query that defines an existing query table.
 
 4. **Impact on dependents**: Renaming or removing output columns can break reports, formulas, or lookups built on the query table. Verify the schema after editing.
 
+**Returns (`data`):** `null`; the confirmation is in `messages`.
+
 **Recommended workflow:**
 1. Call `getQueryTableDetails` to get the current SQL and columns.
 2. Build the new SQL from the current one.
@@ -186,42 +169,36 @@ Replaces the SQL query that defines an existing query table.
 4. Call `getQueryTableDetails` again to confirm the new SQL and columns.
 
 **Tool call:**
-```
-execute_analytics_tool(
-    "editQueryTable",
-    {
-        "workspaceId": "<workspace_id>",
-        "viewId": "<query_table_id>",
-        "sqlQuery": "<new_mysql_compatible_select_query>",
-        "orgId": "<org_id>"
-    }
-)
+```js
+return await tools.editQueryTable({
+    "workspaceId": "<workspace_id>",
+    "viewId": "<query_table_id>",
+    "sqlQuery": "<new_mysql_compatible_select_query>",
+    "orgId": "<org_id>"
+})
 ```
 
 **Example - Add a column, apply a filter, and include customers with no orders:**
 
 Current SQL: `SELECT c."Customer Name", c.Region, COUNT(o."Order ID") AS order_count, SUM(o.Amount) AS total_revenue FROM Customers c LEFT JOIN Orders o ON c."Customer ID" = o."Customer ID" AND o.Status = 'Closed' GROUP BY c."Customer Name", c.Region;`
 
-```
-execute_analytics_tool(
-    "editQueryTable",
-    {
-        "workspaceId": "123456789",
-        "viewId": "987654321",
-        "sqlQuery": """
-            SELECT
-                c."Customer Name",
-                c.Region,
-                COUNT(o."Order ID") AS order_count,
-                SUM(o.Amount) AS total_revenue
-            FROM Customers c
-            LEFT JOIN Orders o
-                ON c."Customer ID" = o."Customer ID"
-                AND o.Status = 'Closed'
-            GROUP BY c."Customer Name", c.Region
-        """
-    }
-)
+```js
+return await tools.editQueryTable({
+    "workspaceId": "123456789",
+    "viewId": "987654321",
+    "sqlQuery": """
+        SELECT
+            c."Customer Name",
+            c.Region,
+            COUNT(o."Order ID") AS order_count,
+            SUM(o.Amount) AS total_revenue
+        FROM Customers c
+        LEFT JOIN Orders o
+            ON c."Customer ID" = o."Customer ID"
+            AND o.Status = 'Closed'
+        GROUP BY c."Customer Name", c.Region
+    """
+})
 ```
 
 ---

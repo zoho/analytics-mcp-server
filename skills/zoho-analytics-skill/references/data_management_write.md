@@ -24,44 +24,38 @@ Adds a single new row to the specified table.
 - Only provide columns you want to set; omitted columns will receive their default value (usually null).
 - For inserting many rows at once, prefer `importData` for efficiency.
 
-**Returns:** A success confirmation message, or an error message if the operation fails.
+**Returns (`data`):** `null`. Check `status`; the confirmation is in `messages`.
 
-```
-execute_analytics_tool(
-    "addRow",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableId": "<table_id>",
-        "columns": {
-            "<column_name>": "<value>",
-            "<column_name>": "<value>"
-        }
+```js
+return await tools.addRow({
+    "workspaceId": "<workspace_id>",
+    "tableId": "<table_id>",
+    "columns": {
+        "<column_name>": "<value>",
+        "<column_name>": "<value>"
     }
-)
+})
 ```
 
 **Example:**
 
-```
-execute_analytics_tool(
-    "addRow",
-    {
-        "workspaceId": "123456789",
-        "tableId": "456789123",
-        "columns": {
-            "Order ID": "ORD-005",
-            "Customer ID": "CUST-99",
-            "Amount": "320.00",
-            "Order Date": "2024-07-15",
-            "Region": "West"
-        }
+```js
+return await tools.addRow({
+    "workspaceId": "123456789",
+    "tableId": "456789123",
+    "columns": {
+        "Order ID": "ORD-005",
+        "Customer ID": "CUST-99",
+        "Amount": "320.00",
+        "Order Date": "2024-07-15",
+        "Region": "West"
     }
-)
+})
 ```
 
 **Sample response:**
-```
-Row added successfully.
+```json
+{"status": "success", "messages": ["Row added successfully."], "errors": [], "data": null}
 ```
 
 ---
@@ -87,58 +81,49 @@ Updates one or more rows in the specified table that match a given criteria expr
 - All rows that satisfy the criteria will be updated — verify your criteria is specific enough to avoid unintended changes.
 - To find matching rows before updating, run a `queryData` SELECT with the same criteria first.
 
-**Returns:** A success confirmation message, or an error message if the operation fails.
+**Returns (`data`):** `null`. Check `status`; the confirmation is in `messages`.
 
-```
-execute_analytics_tool(
-    "updateRows",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableId": "<table_id>",
-        "columns": {
-            "<column_name>": "<new_value>"
-        },
-        "criteria": "\"<TableName>\".\"<ColumnName>\"='<match_value>'"
-    }
-)
+```js
+return await tools.updateRows({
+    "workspaceId": "<workspace_id>",
+    "tableId": "<table_id>",
+    "columns": {
+        "<column_name>": "<new_value>"
+    },
+    "criteria": "\"<TableName>\".\"<ColumnName>\"='<match_value>'"
+})
 ```
 
 **Example — update the Region for a specific order:**
 
-```
-execute_analytics_tool(
-    "updateRows",
-    {
-        "workspaceId": "123456789",
-        "tableId": "456789123",
-        "columns": {
-            "Region": "East",
-            "Amount": "450.00"
-        },
-        "criteria": "\"Orders\".\"Order ID\"='ORD-005'"
-    }
-)
+```js
+return await tools.updateRows({
+    "workspaceId": "123456789",
+    "tableId": "456789123",
+    "columns": {
+        "Region": "East",
+        "Amount": "450.00"
+    },
+    "criteria": "\"Orders\".\"Order ID\"='ORD-005'"
+})
 ```
 
 **Example — update multiple columns using AND condition:**
 
-```
-execute_analytics_tool(
-    "updateRows",
-    {
-        "workspaceId": "123456789",
-        "tableId": "456789123",
-        "columns": {
-            "Status": "Shipped"
-        },
-        "criteria": "\"Orders\".\"Region\"='West' AND \"Orders\".\"Amount\">'300'"
-    }
-)
+```js
+return await tools.updateRows({
+    "workspaceId": "123456789",
+    "tableId": "456789123",
+    "columns": {
+        "Status": "Shipped"
+    },
+    "criteria": "\"Orders\".\"Region\"='West' AND \"Orders\".\"Amount\">'300'"
+})
 ```
 
 **Sample response:**
-```
-Rows updated successfully.
+```json
+{"status": "success", "messages": ["Rows updated successfully."], "errors": [], "data": null}
 ```
 
 ---
@@ -164,46 +149,37 @@ Deletes one or more rows from the specified table that match a given criteria ex
 - To preview which rows will be affected, run a `queryData` SELECT with the same criteria first.
 - There is no undo — deletions are permanent.
 
-**Returns:** A success confirmation message, or an error message if the operation fails.
+**Returns (`data`):** `null`. Check `status`; the confirmation is in `messages`.
 
-```
-execute_analytics_tool(
-    "deleteRows",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableId": "<table_id>",
-        "criteria": "\"<TableName>\".\"<ColumnName>\"='<match_value>'"
-    }
-)
+```js
+return await tools.deleteRows({
+    "workspaceId": "<workspace_id>",
+    "tableId": "<table_id>",
+    "criteria": "\"<TableName>\".\"<ColumnName>\"='<match_value>'"
+})
 ```
 
 **Example — delete a specific order:**
 
-```
-execute_analytics_tool(
-    "deleteRows",
-    {
-        "workspaceId": "123456789",
-        "tableId": "456789123",
-        "criteria": "\"Orders\".\"Order ID\"='ORD-005'"
-    }
-)
+```js
+return await tools.deleteRows({
+    "workspaceId": "123456789",
+    "tableId": "456789123",
+    "criteria": "\"Orders\".\"Order ID\"='ORD-005'"
+})
 ```
 
 **Example — delete all orders from a region:**
 
-```
-execute_analytics_tool(
-    "deleteRows",
-    {
-        "workspaceId": "123456789",
-        "tableId": "456789123",
-        "criteria": "\"Orders\".\"Region\"='East'"
-    }
-)
+```js
+return await tools.deleteRows({
+    "workspaceId": "123456789",
+    "tableId": "456789123",
+    "criteria": "\"Orders\".\"Region\"='East'"
+})
 ```
 
 **Sample response:**
-```
-Rows deleted successfully.
+```json
+{"status": "success", "messages": ["Rows deleted successfully."], "errors": [], "data": null}
 ```

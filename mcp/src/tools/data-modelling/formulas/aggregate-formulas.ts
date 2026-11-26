@@ -1,7 +1,18 @@
 import { z } from "zod";
 import { defineTool } from "../../../tool-registry";
 import { getAnalyticsClient, config } from "../../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../../utils/common";
+import { retryWithFallback } from "../../../utils/common";
+import { ok, fail, failFromError } from "../../../response";
+import { idResult, NoData, listResult, FormulaDto } from "../../../dtos";
+
+const AggregateFormulaDto = FormulaDto.extend({
+  description: z.string().optional().describe("Empty string when the formula has no description"),
+  subType: z.string().optional().describe("Data sub-type of the formula result. Not returned in observed responses"),
+  tableName: z
+    .string()
+    .optional()
+    .describe("Table the formula belongs to. Only present when listing for the whole workspace (viewId not given)"),
+}).meta({ id: "AggregateFormula", description: "An aggregate formula" });
 
 // ---- Tool Registrations ----
 
@@ -45,6 +56,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: listResult("formulas", AggregateFormulaDto),
   handler: async ({ workspaceId, viewId, formulaNameContainsStr, orgId }) => {
     try {
       if (!orgId) {
@@ -67,7 +79,7 @@ defineTool({
           }
 
           if (!formulas || formulas.length === 0) {
-            return ToolResponse("No aggregate formulas found.");
+            return ok({ formulas: [], count: 0 }, "No aggregate formulas found.");
           }
 
           // Apply name filter if provided
@@ -77,7 +89,7 @@ defineTool({
               (f: any) => f.formulaName && f.formulaName.toLowerCase().includes(filterStr)
             );
             if (formulas.length === 0) {
-              return ToolResponse(`No aggregate formulas found matching '${formulaNameContainsStr}'.`);
+              return ok({ formulas: [], count: 0 }, `No aggregate formulas found matching '${formulaNameContainsStr}'.`);
             }
           }
 
@@ -91,12 +103,12 @@ defineTool({
             tableName: f.tableName,
           }));
 
-          return ToolResponse(JSON.stringify(result));
+          return ok({ formulas: result, count: result.length }, `Found ${result.length} aggregate formula(s).`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while fetching aggregate formulas");
+      return failFromError(err, "An error occurred while fetching aggregate formulas");
     }
   },
 });
@@ -141,6 +153,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: idResult("formulaId", "ID of the newly created aggregate formula"),
   handler: async ({ workspaceId, tableId, formulaName, expression, orgId }) => {
     try {
       if (!orgId) {
@@ -154,12 +167,12 @@ defineTool({
           const ac = getAnalyticsClient();
           const viewInst = ac.getViewInstance(org_id, workspace, tableId);
           const formulaId = await (viewInst as any).addAggregateFormula(formulaName, expression);
-          return ToolResponse(`Aggregate formula '${formulaName}' created successfully. Formula ID: ${formulaId}`);
+          return ok({ formulaId: String(formulaId) }, `Aggregate formula '${formulaName}' created successfully.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while creating the aggregate formula");
+      return failFromError(err, "An error occurred while creating the aggregate formula");
     }
   },
 });
@@ -189,12 +202,12 @@ async function editAggregateFormulaHandler({ workspaceId, tableId, formulaId, ex
           sdkConfig.description = description;
         }
         await (viewInst as any).editAggregateFormula(formulaId, expression, sdkConfig);
-        return ToolResponse(`Aggregate formula (ID: ${formulaId}) updated successfully.`);
+        return ok(null, `Aggregate formula (ID: ${formulaId}) updated successfully.`);
       },
       workspaceId
     );
   } catch (err) {
-    return logAndReturnError(err, "An error occurred while editing the aggregate formula");
+    return failFromError(err, "An error occurred while editing the aggregate formula");
   }
 }
 
@@ -238,7 +251,8 @@ defineTool({
        .optional()
        .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
    },
-   handler: editAggregateFormulaHandler,
+   returns: NoData,
+  handler: editAggregateFormulaHandler,
  });
 
 async function deleteAggregateFormulaHandler({ workspaceId, tableId, formulaId, deleteDependentViews, orgId }: {
@@ -268,12 +282,12 @@ async function deleteAggregateFormulaHandler({ workspaceId, tableId, formulaId, 
         }
         
         await (viewInst as any).deleteAggregateFormula(formulaId, sdkConfig);
-        return ToolResponse(`Aggregate formula (ID: ${formulaId}) deleted successfully.`);
+        return ok(null, `Aggregate formula (ID: ${formulaId}) deleted successfully.`);
       },
       workspaceId
     );
   } catch (err) {
-    return logAndReturnError(err, "An error occurred while deleting the aggregate formula");
+    return failFromError(err, "An error occurred while deleting the aggregate formula");
   }
 }
 
@@ -316,5 +330,6 @@ defineTool({
        .optional()
        .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
    },
-   handler: deleteAggregateFormulaHandler,
+   returns: NoData,
+  handler: deleteAggregateFormulaHandler,
  });

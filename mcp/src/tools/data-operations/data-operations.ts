@@ -3,15 +3,53 @@ import path from "path";
 import fs from "fs";
 import { defineTool } from "../../tool-registry";
 import { getAnalyticsClient, config } from "../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../utils/common";
+import { retryWithFallback } from "../../utils/common";
+import { ok, fail, failFromError } from "../../response";
+import { NoData } from "../../dtos";
 import {
   pollJobCompletion,
   QUERY_DATA_POLLING_INTERVAL,
   QUERY_DATA_QUEUE_TIMEOUT,
   QUERY_DATA_QUERY_EXECUTION_TIMEOUT,
   QUERY_DATA_ROW_LIMIT,
+  parseCsvRows,
 } from "../../utils/data-util";
 import { enforceLimit } from "../../utils/sqlLimitEnforcer";
+
+const QueryResultDto = z.object({
+  columns: z.array(z.string()).describe("Column names, in order"),
+  rows: z
+    .array(z.array(z.string()))
+    .describe(
+      "Result rows; each row is an array of string values aligned with `columns`. All values are strings (numbers and dates included) and NULL is returned as an empty string"
+    ),
+  rowCount: z.number().describe("Number of rows in `rows`"),
+  truncated: z
+    .boolean()
+    .describe("true when the row cap was reached; more rows may exist. Use LIMIT/OFFSET in the SQL to page"),
+  rowLimit: z.number().describe("The maximum number of rows the tool returns per query"),
+});
+
+const ImportSummaryDto = z
+  .looseObject({
+    importSummary: z
+      .looseObject({
+        importType: z.string().nullish().describe("e.g. APPEND"),
+        totalColumnCount: z.number().nullish(),
+        selectedColumnCount: z.number().nullish(),
+        totalRowCount: z.number().nullish().describe("Rows found in the input"),
+        successRowCount: z.number().nullish().describe("Rows imported successfully"),
+        warnings: z.number().nullish(),
+        importOperation: z.string().nullish().describe("e.g. updated"),
+      })
+      .describe("Row and column counts of the import"),
+    columnDetails: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe("Map of column name to the data type Zoho detected, e.g. { id: 'Positive Number' }"),
+    importErrors: z.any().optional().describe("Empty string when there were no errors"),
+  })
+  .meta({ id: "ImportSummary", description: "Import summary returned by Zoho Analytics" });
 
 // ---- Tool Registrations ----
 
@@ -55,6 +93,7 @@ defineTool({
       .describe("The ID of the workspace where the query will be executed"),
     sqlQuery: z.string().describe("The SQL query to be executed"),
   },
+  returns: QueryResultDto,
   handler: async ({ workspaceId, sqlQuery }) => {
     try {
       try {
@@ -101,45 +140,40 @@ defineTool({
             );
           }
           const jobDir = path.join(allowedFileRoot, "job", jobId);
-          fs.mkdirSync(jobDir, { recursive: true });
-          const tmpFilePath = path.join(jobDir, `${jobId}.csv`);
-          await bulk.exportBulkData(jobId, tmpFilePath);
-
           let csvData: string;
           try {
+            fs.mkdirSync(jobDir, { recursive: true });
+            const tmpFilePath = path.join(jobDir, `${jobId}.csv`);
+            await bulk.exportBulkData(jobId, tmpFilePath);
             csvData = fs.readFileSync(tmpFilePath, "utf8");
           } finally {
-            if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
+            await fs.promises.rm(jobDir, { recursive: true, force: true });
           }
 
-          const rows: string[][] = csvData
-            .trim()
-            .split("\n")
-            .map((line: string) => line.split(","));
+          const rows: string[][] = parseCsvRows(csvData);
 
           const columns: string[] = rows.shift() || [];
           const limitedRows: string[][] = rows.slice(0, QUERY_DATA_ROW_LIMIT);
+          const truncated = limitedRows.length >= QUERY_DATA_ROW_LIMIT;
 
-          let responseMessage =
-            `Query executed successfully. Retrieved ${limitedRows.length} rows.\n` +
-            JSON.stringify({ columns, rows: limitedRows });
-
-          if (limitedRows.length >= QUERY_DATA_ROW_LIMIT) {
-            responseMessage =
-              `Here are the top ${QUERY_DATA_ROW_LIMIT} rows for the given query (including the header row). ` +
-              `It is possible (not confirmed) that there could be more rows this SELECT query could have produced. ` +
-              `If you need more rows, adjust the OFFSET in the SELECT query. ` +
-              `Note that the LIMIT cannot be increased beyond ${QUERY_DATA_ROW_LIMIT} due to system constraints.\n\n` +
-              JSON.stringify({ columns, rows: limitedRows });
+          const messages = [`Query executed successfully. Retrieved ${limitedRows.length} rows.`];
+          if (truncated) {
+            messages.push(
+              `The row cap of ${QUERY_DATA_ROW_LIMIT} was reached. It is possible (not confirmed) that the query could have produced more rows. ` +
+                `To get more, adjust the OFFSET in the SELECT query. The LIMIT cannot be increased beyond ${QUERY_DATA_ROW_LIMIT} due to system constraints.`
+            );
           }
 
-          return ToolResponse(responseMessage);
+          return ok(
+            { columns, rows: limitedRows, rowCount: limitedRows.length, truncated, rowLimit: QUERY_DATA_ROW_LIMIT },
+            messages
+          );
         },
         workspaceId,
         sqlQuery
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while executing the query");
+      return failFromError(err, "An error occurred while executing the query");
     }
   },
 });
@@ -199,6 +233,7 @@ defineTool({
           "Required for shared workspaces. Falls back to the configured default if omitted."
       ),
   },
+  returns: ImportSummaryDto,
   handler: async ({ workspaceId, tableId, data, filePath, fileType, orgId }) => {
     try {
       if (!orgId) {
@@ -246,26 +281,28 @@ defineTool({
 
           if (filePath) {
             if ((filePath as string).startsWith("https")) {
-              return ToolResponse(
-                "File path cannot be a remote URL. Please download the file first and provide the local file path."
-              );
+              return fail({
+                message: "File path cannot be a remote URL. Please download the file first and provide the local file path.",
+                path: "filePath",
+              });
             }
             if (!fs.existsSync(filePath)) {
-              return ToolResponse(
-                `File ${filePath} does not exist. Please provide a valid local file path.`
-              );
+              return fail({
+                message: `File ${filePath} does not exist. Please provide a valid local file path.`,
+                path: "filePath",
+              });
             }
             if (!type || (type !== "csv" && type !== "json")) {
-              return ToolResponse("File type must be specified as 'csv' or 'json'.");
+              return fail({ message: "File type must be specified as 'csv' or 'json'.", path: "fileType" });
             }
             const result = await bulk.importData(table, "append", type, "true", filePath, {
               delimiter: "0",
             });
-            return ToolResponse(JSON.stringify(result));
+            return ok(result as z.infer<typeof ImportSummaryDto>, "Data imported successfully (append mode).");
           }
 
           if (!input) {
-            return ToolResponse("No data provided to import. Please provide either 'data' or 'filePath'.");
+            return fail({ message: "No data provided to import. Please provide either 'data' or 'filePath'.", path: "data" });
           }
 
           const result = await bulk.importRawData(
@@ -276,7 +313,7 @@ defineTool({
             JSON.stringify(input),
             { delimiter: "0" }
           );
-          return ToolResponse(JSON.stringify(result));
+          return ok(result as z.infer<typeof ImportSummaryDto>, "Data imported successfully (append mode).");
         },
         workspaceId,
         tableId,
@@ -285,7 +322,7 @@ defineTool({
         fileType
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while importing data into the table");
+      return failFromError(err, "An error occurred while importing data into the table");
     }
   },
 });
@@ -310,6 +347,7 @@ defineTool({
     workspaceId: z.string().describe("The ID of the workspace containing the view to export"),
     viewId: z.string().describe("The ID of the view to export"),
   },
+  returns: z.object({ filePath: z.string().describe("Absolute path of the exported CSV file on the server") }),
   handler: async ({ workspaceId, viewId }) => {
     try {
       return await retryWithFallback(
@@ -335,7 +373,7 @@ defineTool({
 
           try {
             await bulk.exportData(view, "csv", filePath);
-            return ToolResponse(`View exported successfully. File saved to: ${filePath}`);
+            return ok({ filePath }, `View exported successfully. File saved to: ${filePath}`);
           } catch {
             // Sync export not supported for this view — fall back to async export
             const jobId = await bulk.initiateBulkExport(view, "csv");
@@ -358,14 +396,14 @@ defineTool({
             if (errorMessage) throw new Error(errorMessage);
 
             await bulk.exportBulkData(jobId, filePath);
-            return ToolResponse(`View exported successfully. File saved to: ${filePath}`);
+            return ok({ filePath }, `View exported successfully. File saved to: ${filePath}`);
           }
         },
         workspaceId,
         viewId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while exporting the view");
+      return failFromError(err, "An error occurred while exporting the view");
     }
   },
 });
@@ -384,6 +422,7 @@ defineTool({
       .record(z.string(), z.string())
       .describe("A dictionary containing the column names and their corresponding values for the new row"),
   },
+  returns: NoData,
   handler: async ({ workspaceId, tableId, columns }) => {
     try {
       const orgId = config.ORGID || "";
@@ -395,14 +434,14 @@ defineTool({
           const analyticsClient = getAnalyticsClient();
           const view = analyticsClient.getViewInstance(org_id, workspace, table);
           await view.addRow(cols);
-          return ToolResponse("Row added successfully.");
+          return ok(null, "Row added successfully.");
         },
         workspaceId,
         tableId,
         columns
       );
     } catch (err) {
-      return logAndReturnError(err, "Error while adding row");
+      return failFromError(err, "Error while adding row");
     }
   },
 });
@@ -423,6 +462,7 @@ defineTool({
         "A string representing the criteria for selecting rows to delete. Example criteria: \"\\\"SalesTable\\\".\\\"Region\\\"='East'\""
       ),
   },
+  returns: NoData,
   handler: async ({ workspaceId, tableId, criteria }) => {
     try {
       const orgId = config.ORGID || "";
@@ -434,14 +474,14 @@ defineTool({
           const analyticsClient = getAnalyticsClient();
           const view = analyticsClient.getViewInstance(org_id, workspace, table);
           await view.deleteRow(crit);
-          return ToolResponse("Rows deleted successfully.");
+          return ok(null, "Rows deleted successfully.");
         },
         workspaceId,
         tableId,
         criteria
       );
     } catch (err) {
-      return logAndReturnError(err, "Error while deleting rows");
+      return failFromError(err, "Error while deleting rows");
     }
   },
 });
@@ -465,6 +505,7 @@ defineTool({
         "A string representing the criteria for selecting rows to update. Example criteria: \"\\\"SalesTable\\\".\\\"Region\\\"='East'\""
       ),
   },
+  returns: NoData,
   handler: async ({ workspaceId, tableId, columns, criteria }) => {
     try {
       const orgId = config.ORGID || "";
@@ -476,7 +517,7 @@ defineTool({
           const analyticsClient = getAnalyticsClient();
           const view = analyticsClient.getViewInstance(org_id, workspace, table);
           await view.updateRow(cols, crit);
-          return ToolResponse("Rows updated successfully.");
+          return ok(null, "Rows updated successfully.");
         },
         workspaceId,
         tableId,
@@ -484,7 +525,7 @@ defineTool({
         columns
       );
     } catch (err) {
-      return logAndReturnError(err, "Error while updating rows");
+      return failFromError(err, "Error while updating rows");
     }
   },
 });

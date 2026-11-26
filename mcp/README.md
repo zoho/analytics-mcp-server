@@ -74,6 +74,33 @@ For detailed instructions, refer to the [official API Authentication Documentati
 | `ACCOUNTS_SERVER_URL` | Your Zoho Accounts Domain URL (typically `<your-accounts-uri>`) |
 | `ANALYTICS_SERVER_URL` | Your Zoho Analytics API Domain URL (typically `<your-analytics-uri>`) |
 
+#### Optional Code Mode Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CODEMODE_TIMEOUT_MS` | `60000` | Wall-clock limit for one `execute_code` run |
+| `CODEMODE_MEMORY_MB` | `64` | Sandbox memory limit |
+| `CODEMODE_MAX_TOOL_CALLS` | `50` | Maximum tool calls per `execute_code` run |
+| `CODEMODE_MAX_OUTPUT_CHARS` | `100000` | Maximum size of the returned result and of the captured logs |
+
+## Exposed MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `execute_analytics_tool` | Runs a single Zoho Analytics operation by name |
+| `get_signature` | Returns TypeScript signatures (arguments and the typed `data` result) for the given operations |
+| `execute_code` | Runs JavaScript in a QuickJS (WebAssembly) sandbox where every operation is available as `await tools.<toolName>(args)` |
+
+### Response envelope
+
+Every operation returns the same JSON envelope. The operation's result is in `data`; its type is published through `get_signature`.
+
+```json
+{ "status": "success" | "error", "messages": ["hints, warnings, next steps"], "errors": [{ "message": "...", "code": 7101, "path": "argName" }], "data": { } }
+```
+
+In `execute_code`, a failed call rejects with an `Error` carrying `.errors` and `.messages`. Set `VALIDATE_TOOL_RESPONSES=1` during development to log (stderr) any handler whose `data` does not match its declared DTO.
+
 ### Support
 
 For issues and questions, contact Zoho support for account-related issues

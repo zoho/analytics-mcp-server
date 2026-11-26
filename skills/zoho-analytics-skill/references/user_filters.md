@@ -205,47 +205,44 @@ Controls how filter values are populated in the widget. **Not applicable** for `
 
 ## Complete Example — Chart with Multiple User Filters
 
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "123456789",
-        "tableName": "Sales Data",
-        "reportName": "Sales Analysis",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "bar",
-            "axisColumns": [
-                {"type": "xAxis", "columnName": "Product Category", "operation": "actual"},
-                {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
-            ]
-        },
-        "userFilters": [
-            {
-                "columnName": "Region",
-                "tableName": "Sales Data",
-                "operation": "actual",
-                "compType": "multiSelect",
-                "isallval": true,
-                "behaviour": "ListAllValues"
-            },
-            {
-                "columnName": "Order Date",
-                "tableName": "Sales Data",
-                "operation": "dateRange"
-            },
-            {
-                "columnName": "Sales Amount",
-                "tableName": "Sales Data",
-                "operation": "sum",
-                "compType": "slider",
-                "filterType": "ranking",
-                "values": ["Top 5", "Top 10", "Top 20"],
-                "defaultFilterValues": ["Top 10"]
-            }
+```js
+return await tools.createReport({
+    "workspaceId": "123456789",
+    "tableName": "Sales Data",
+    "reportName": "Sales Analysis",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "bar",
+        "axisColumns": [
+            {"type": "xAxis", "columnName": "Product Category", "operation": "actual"},
+            {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
         ]
-    }
-)
+    },
+    "userFilters": [
+        {
+            "columnName": "Region",
+            "tableName": "Sales Data",
+            "operation": "actual",
+            "compType": "multiSelect",
+            "isallval": true,
+            "behaviour": "ListAllValues"
+        },
+        {
+            "columnName": "Order Date",
+            "tableName": "Sales Data",
+            "operation": "dateRange"
+        },
+        {
+            "columnName": "Sales Amount",
+            "tableName": "Sales Data",
+            "operation": "sum",
+            "compType": "slider",
+            "filterType": "ranking",
+            "values": ["Top 5", "Top 10", "Top 20"],
+            "defaultFilterValues": ["Top 10"]
+        }
+    ]
+})
 ```
 
 ---

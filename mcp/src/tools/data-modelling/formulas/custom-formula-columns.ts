@@ -1,7 +1,15 @@
 import { z } from "zod";
 import { defineTool } from "../../../tool-registry";
 import { getAnalyticsClient, config } from "../../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../../utils/common";
+import { retryWithFallback } from "../../../utils/common";
+import { ok, fail, failFromError } from "../../../response";
+import { idResult, NoData, listResult, FormulaDto } from "../../../dtos";
+
+const CustomFormulaColumnDto = FormulaDto.extend({
+  expression: z.string().nullish().describe("Not present in observed responses"),
+  description: z.string().optional().describe("Only present when Zoho returns it. It was empty in testing even after being set through addCustomFormulaColumn / editCustomFormulaColumn, so do not rely on it to read a description back"),
+  tableName: z.string().optional().describe("Not present in observed responses"),
+}).meta({ id: "CustomFormulaColumn", description: "A custom formula column" });
 
 // ---- Tool Registrations ----
 
@@ -25,9 +33,8 @@ defineTool({
     A JSON array of custom formula column objects. Each object contains:
     - formulaId: The unique identifier of the formula column.
     - formulaName: The name of the formula column.
-    - expression: The SQL SELECT clause expression of the formula column.
-    - description: A description of the formula column (if available).
-    - tableName: The name of the table the formula column belongs to.
+    - description: Only present when Zoho returns it (not reliably returned).
+    - Note: the Zoho API did not return expression or tableName for formula columns in testing.
   `,
   args: {
     workspaceId: z.string().describe("The ID of the workspace"),
@@ -43,6 +50,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: listResult("formulas", CustomFormulaColumnDto),
   handler: async ({ workspaceId, tableId, formulaNameContainsStr, orgId }) => {
     try {
       if (!orgId) {
@@ -58,7 +66,7 @@ defineTool({
           let formulas: any[] = await (viewInst as any).getFormulaColumns();
 
           if (!formulas || formulas.length === 0) {
-            return ToolResponse("No custom formula columns found.");
+            return ok({ formulas: [], count: 0 }, "No custom formula columns found.");
           }
 
           // Apply name filter if provided
@@ -68,7 +76,7 @@ defineTool({
               (f: any) => f.formulaName && f.formulaName.toLowerCase().includes(filterStr)
             );
             if (formulas.length === 0) {
-              return ToolResponse(`No custom formula columns found matching '${formulaNameContainsStr}'.`);
+              return ok({ formulas: [], count: 0 }, `No custom formula columns found matching '${formulaNameContainsStr}'.`);
             }
           }
 
@@ -77,16 +85,16 @@ defineTool({
             formulaId: f.formulaId,
             formulaName: f.formulaName,
             expression: f.expression,
-            description: f.description ?? "",
+            description: f.description,
             tableName: f.tableName,
           }));
 
-          return ToolResponse(JSON.stringify(result));
+          return ok({ formulas: result, count: result.length }, `Found ${result.length} custom formula column(s).`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while fetching custom formula columns");
+      return failFromError(err, "An error occurred while fetching custom formula columns");
     }
   },
 });
@@ -132,6 +140,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: idResult("formulaId", "ID of the newly created custom formula column"),
   handler: async ({ workspaceId, tableId, formulaName, expression, description, orgId }) => {
     try {
       if (!orgId) {
@@ -149,12 +158,12 @@ defineTool({
             sdkConfig.description = description;
           }
           const formulaId = await (viewInst as any).addFormulaColumn(formulaName, expression, sdkConfig);
-          return ToolResponse(`Custom formula column '${formulaName}' created successfully. Formula ID: ${formulaId}`);
+          return ok({ formulaId: String(formulaId) }, `Custom formula column '${formulaName}' created successfully.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while creating the custom formula column");
+      return failFromError(err, "An error occurred while creating the custom formula column");
     }
   },
 });
@@ -199,6 +208,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: NoData,
   handler: async ({ workspaceId, tableId, formulaId, expression, description, orgId }) => {
     try {
       if (!orgId) {
@@ -216,12 +226,12 @@ defineTool({
             sdkConfig.description = description;
           }
           await (viewInst as any).editFormulaColumn(formulaId, expression, sdkConfig);
-          return ToolResponse(`Custom formula column (ID: ${formulaId}) updated successfully.`);
+          return ok(null, `Custom formula column (ID: ${formulaId}) updated successfully.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while editing the custom formula column");
+      return failFromError(err, "An error occurred while editing the custom formula column");
     }
   },
 });
@@ -255,6 +265,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: NoData,
   handler: async ({ workspaceId, tableId, formulaId, orgId }) => {
     try {
       if (!orgId) {
@@ -268,12 +279,12 @@ defineTool({
           const ac = getAnalyticsClient();
           const viewInst = ac.getViewInstance(org_id, workspace, tableId);
           await (viewInst as any).deleteFormulaColumn(formulaId);
-          return ToolResponse(`Custom formula column (ID: ${formulaId}) deleted successfully.`);
+          return ok(null, `Custom formula column (ID: ${formulaId}) deleted successfully.`);
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while deleting the custom formula column");
+      return failFromError(err, "An error occurred while deleting the custom formula column");
     }
   },
 });

@@ -1,8 +1,78 @@
 import { z } from "zod";
 import { defineTool } from "../../tool-registry";
 import { getAnalyticsClient, config } from "../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../utils/common";
+import { retryWithFallback } from "../../utils/common";
+import { ok, fail, failFromError } from "../../response";
+import { NoData, idResult } from "../../dtos";
 import { validateChartCompatibility, type AxisColumnInput } from "./chart-validation";
+
+/** Zoho returns these lower-cased; restore the spelling that createReport / updateReport accept. */
+const CHART_AXIS_TYPES = ["xAxis", "yAxis", "colorAxis", "sizeAxis", "textAxis"];
+const FILTER_TYPES = [
+  "individualValues", "range", "ranking", "rankingPct", "dateRange", "year", "quarterYear",
+  "monthYear", "weekYear", "quarter", "month", "week", "weekDay", "day", "hour", "dateTime",
+];
+const byLowerCase = (names: string[]) => new Map(names.map((n) => [n.toLowerCase(), n]));
+const CHART_AXIS_BY_LOWER = byLowerCase(CHART_AXIS_TYPES);
+const FILTER_TYPE_BY_LOWER = byLowerCase(FILTER_TYPES);
+
+function restoreInputSpelling(metadata: any): any {
+  const cfg = metadata?.reportConfig;
+  if (!cfg) return metadata;
+  if (Array.isArray(cfg.axisColumns)) {
+    cfg.axisColumns = cfg.axisColumns.map((a: any) => {
+      const t = typeof a?.type === "string" ? CHART_AXIS_BY_LOWER.get(a.type.toLowerCase()) : undefined;
+      return t ? { ...a, type: t } : a;
+    });
+  }
+  if (Array.isArray(cfg.filters)) {
+    cfg.filters = cfg.filters.map((f: any) => {
+      const t = typeof f?.filterType === "string" ? FILTER_TYPE_BY_LOWER.get(f.filterType.toLowerCase()) : undefined;
+      return t ? { ...f, filterType: t } : f;
+    });
+  }
+  return metadata;
+}
+
+const ReportAxisColumnDto = z.looseObject({
+  type: z
+    .string()
+    .describe(
+      "Axis role. Chart reports: xAxis, yAxis, colorAxis, sizeAxis, textAxis (same spelling as createReport/updateReport). Summary and pivot reports use Zoho's own lower-case roles instead (groupby, summarize / row, column, data), which have no direct input equivalent: send those as summaryConfig.groupBy/aggregate or pivotConfig.row/column/data"
+    ),
+  columnName: z.string(),
+  tableName: z.string(),
+  operation: z.string().describe("Normalised by Zoho, e.g. actual, sum, average, count"),
+});
+
+const ReportFilterDto = z.looseObject({
+  tableName: z.string().optional(),
+  columnName: z.string(),
+  operation: z.string(),
+  filterType: z.string().optional().describe("Same spelling as createReport/updateReport, e.g. individualValues"),
+  values: z.array(z.string()).optional(),
+  exclude: z.boolean().optional(),
+});
+
+const ReportConfigDto = z.looseObject({
+  title: z.string().nullish(),
+  description: z.string().optional().describe("Present after the report has been updated"),
+  reportType: z.string().nullish().describe("chart, pivot or summary"),
+  chartType: z.string().nullish().describe("Present for chart reports, e.g. bar, line, pie, ring, stacked bar"),
+  baseTableName: z.string().nullish().describe("Table the report is built on"),
+  isAxisMerge: z.boolean().optional(),
+  axisColumns: z.array(ReportAxisColumnDto).optional(),
+  filters: z.array(ReportFilterDto).optional().describe("Absent when the report has no filters"),
+  userFilters: z.array(z.any()).optional().describe("Absent when the report has no user filters"),
+});
+
+const ReportMetadataDto = z
+  .object({ reportConfig: ReportConfigDto })
+  .meta({
+    id: "ReportMetadata",
+    description:
+      "Report design configuration as returned by Zoho Analytics, wrapped in `reportConfig`. Chart axis `type` and filter `filterType` use the input spelling of updateReport. Operations are normalised by Zoho (e.g. avg becomes average), and summary/pivot axisColumns use Zoho's own roles (groupby, summarize, row, column, data), so those reports must be re-expressed as summaryConfig/pivotConfig when updating",
+  });
 
 // ---- Tool Registrations ----
 
@@ -27,7 +97,7 @@ defineTool({
     - orgId (str | None): The ID of the organization. Defaults to config.ORGID if not provided.
 
     4. Returns:
-    - A JSON string containing the report metadata, or an error message.
+    - { reportConfig: { title, reportType, chartType, baseTableName, axisColumns, filters, userFilters } }. Chart axis types and filter types use the same spelling as the input (xAxis, individualValues). Summary and pivot axisColumns use the roles groupby/summarize and row/column/data.
   `,
   args: {
     workspaceId: z.string().describe("The ID of the workspace containing the report"),
@@ -37,6 +107,7 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: ReportMetadataDto,
   handler: async ({ workspaceId, reportId, orgId }) => {
     try {
       if (!orgId) {
@@ -49,13 +120,16 @@ defineTool({
         async (org_id, workspace) => {
           const ac = getAnalyticsClient();
           const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
-          const metadata = await (workspaceInst as any).getReportMetadata(reportId);
-          return ToolResponse(JSON.stringify(metadata, null, 2));
+          const metadata = restoreInputSpelling(await (workspaceInst as any).getReportMetadata(reportId));
+          return ok(
+            metadata,
+            "This is the complete current configuration in data.reportConfig. To update the report, modify it and submit the full configuration through updateReport (the update replaces axis, filter and user-filter configuration). Chart axisColumns and filters can be reused as they are; for summary and pivot reports, move axisColumns into summaryConfig (groupBy / aggregate) or pivotConfig (row / column / data)."
+          );
         },
         workspaceId
       );
     } catch (err) {
-      return logAndReturnError(err, "An error occurred while retrieving the report metadata");
+      return failFromError(err, "An error occurred while retrieving the report metadata");
     }
   },
 });
@@ -268,6 +342,7 @@ defineTool({
         "Optional user filters - interactive filter widgets exposed to viewers. Each user filter must include columnName, tableName, and operation. compType is required for all operations except 'dateRange'. filterType is required for measures and date actual/seasonal operations."
       ),
   },
+  returns: idResult("reportId", "ID of the newly created report"),
   handler: async ({
     workspaceId,
     tableName,
@@ -290,28 +365,28 @@ defineTool({
 
       if (reportType === "chart") {
         if (!chartConfig) {
-          return ToolResponse("chartConfig is required when reportType is 'chart'.");
+          return fail("chartConfig is required when reportType is 'chart'.");
         }
         const { chartType, axisColumns: inputAxisColumns } = chartConfig;
 
         if (!chartType) {
-          return ToolResponse("Chart type is required. Please provide 'chartType' in chartConfig.");
+          return fail("Chart type is required. Please provide 'chartType' in chartConfig.");
         }
         if (!inputAxisColumns || inputAxisColumns.length === 0) {
-          return ToolResponse("At least one axis column must be provided in chartConfig.axisColumns.");
+          return fail("At least one axis column must be provided in chartConfig.axisColumns.");
         }
 
         // Validate each axis column has required fields
         for (let i = 0; i < inputAxisColumns.length; i++) {
           const col = inputAxisColumns[i];
           if (!col.columnName) {
-            return ToolResponse(`axisColumns[${i}] is missing 'columnName'.`);
+            return fail(`axisColumns[${i}] is missing 'columnName'.`);
           }
           if (!col.operation) {
-            return ToolResponse(`axisColumns[${i}] ('${col.columnName}') is missing 'operation'.`);
+            return fail(`axisColumns[${i}] ('${col.columnName}') is missing 'operation'.`);
           }
           if (!col.type) {
-            return ToolResponse(
+            return fail(
               `axisColumns[${i}] ('${col.columnName}') is missing 'type'. Must be one of: xAxis, yAxis, colorAxis, sizeAxis, textAxis.`
             );
           }
@@ -320,7 +395,7 @@ defineTool({
         // Run compatibility validation
         const validation = validateChartCompatibility(chartType, inputAxisColumns as AxisColumnInput[]);
         if (!validation.valid) {
-          return ToolResponse(validation.error!);
+          return fail(validation.error!);
         }
 
         // Build payload axisColumns
@@ -341,7 +416,7 @@ defineTool({
             if (
               !("columnName" in f && "operation" in f && "filterType" in f && "values" in f && "exclude" in f)
             ) {
-              return ToolResponse(
+              return fail(
                 "Each filter must contain 'columnName', 'operation', 'filterType', 'values', and 'exclude'."
               );
             }
@@ -349,7 +424,7 @@ defineTool({
         }
       } else if (reportType === "summary") {
         if (!summaryConfig) {
-          return ToolResponse("summaryConfig is required when reportType is 'summary'.");
+          return fail("summaryConfig is required when reportType is 'summary'.");
         }
         const { groupBy, aggregate } = summaryConfig;
 
@@ -363,7 +438,7 @@ defineTool({
         }
         for (const ag of aggregate) {
           if (ag.operation === "actual") {
-            return ToolResponse("Invalid operation 'actual' in aggregate. Use 'sum', 'count', etc.");
+            return fail("Invalid operation 'actual' in aggregate. Use 'sum', 'count', etc.");
           }
           axisColumns.push({
             type: "summarize",
@@ -375,10 +450,10 @@ defineTool({
       } else {
         // reportType === "pivot"
         if (!pivotConfig) {
-          return ToolResponse("pivotConfig is required when reportType is 'pivot'.");
+          return fail("pivotConfig is required when reportType is 'pivot'.");
         }
         if (!pivotConfig.row && !pivotConfig.column && !pivotConfig.data) {
-          return ToolResponse(
+          return fail(
             "At least one of 'row', 'column', or 'data' must be provided in pivotConfig."
           );
         }
@@ -388,13 +463,13 @@ defineTool({
           const axisList = pivotConfig[axisKey];
           if (axisList) {
             if (!Array.isArray(axisList) || axisList.length === 0) {
-              return ToolResponse(
+              return fail(
                 `'${axisKey}' must be a non-empty list with 'columnName', 'tableName', and 'operation'.`
               );
             }
             for (const entry of axisList) {
               if (!requiredKeys.every((k) => k in entry)) {
-                return ToolResponse(
+                return fail(
                   `Each entry in '${axisKey}' must contain 'columnName', 'tableName', and 'operation'.`
                 );
               }
@@ -423,18 +498,18 @@ defineTool({
           
           // Check required fields
           if (!uf.columnName) {
-            return ToolResponse(`userFilters[${i}] is missing required field 'columnName'.`);
+            return fail(`userFilters[${i}] is missing required field 'columnName'.`);
           }
           if (!uf.tableName) {
-            return ToolResponse(`userFilters[${i}] ('${uf.columnName}') is missing required field 'tableName'. Unlike static filters, tableName is mandatory for user filters.`);
+            return fail(`userFilters[${i}] ('${uf.columnName}') is missing required field 'tableName'. Unlike static filters, tableName is mandatory for user filters.`);
           }
           if (!uf.operation) {
-            return ToolResponse(`userFilters[${i}] ('${uf.columnName}') is missing required field 'operation'.`);
+            return fail(`userFilters[${i}] ('${uf.columnName}') is missing required field 'operation'.`);
           }
 
           // Validate compType requirement (required for all operations except 'dateRange')
           if (uf.operation !== "dateRange" && !uf.compType) {
-            return ToolResponse(
+            return fail(
               `userFilters[${i}] ('${uf.columnName}'): 'compType' is required for all operations except 'dateRange'. ` +
               `For dimensions and dates use 'singleSelect' or 'multiSelect'. For measures use 'slider' or 'multiSelect'.`
             );
@@ -442,7 +517,7 @@ defineTool({
 
           // Validate behaviour field (not applicable for dateRange or relative operations)
           if ((uf.operation === "dateRange" || uf.operation === "relative") && uf.behaviour) {
-            return ToolResponse(
+            return fail(
               `userFilters[${i}] ('${uf.columnName}'): 'behaviour' field cannot be used with '${uf.operation}' operation. Remove the 'behaviour' field.`
             );
           }
@@ -453,7 +528,7 @@ defineTool({
           const isMeasureOperation = measureOperations.includes(uf.operation);
           
           if ((isMeasureOperation || dateActualOrSeasonal) && uf.operation !== "dateRange" && uf.operation !== "relative" && !uf.filterType) {
-            return ToolResponse(
+            return fail(
               `userFilters[${i}] ('${uf.columnName}'): 'filterType' is required for operation '${uf.operation}'. ` +
               `For measures use: 'individualValues', 'range', 'ranking', or 'rankingPct'. ` +
               `For date actual use: 'year', 'quarteryear', 'monthyear', 'weekyear', 'fulldate', 'datetime', 'quarter', 'month', 'week', 'date'. ` +
@@ -474,7 +549,7 @@ defineTool({
           const analyticsClient = getAnalyticsClient();
           const workspaceInst = analyticsClient.getWorkspaceInstance(org_id, workspace);
           const reportId = await (workspaceInst as any).createReport(conf);
-          return ToolResponse(`${reportTypeLabel} report created successfully. Report ID: ${reportId}`);
+          return ok({ reportId: String(reportId) }, `${reportTypeLabel} report created successfully.`);
         },
         workspaceId
       );
@@ -482,16 +557,16 @@ defineTool({
       if ("errorMessage" in error && "errorCode" in error) {
         const { errorMessage, errorCode } = error as { errorMessage: string; errorCode: number };
         if (errorCode === 8166) {
-          return ToolResponse(
-            errorMessage +
-              "\nSupported operations for columns of different types:\n" +
+          return fail(
+            { message: errorMessage, code: errorCode },
+            "Supported operations for columns of different types:\n" +
               "  String: actual, count, distinctCount\n" +
               "  Number: measure, dimension, sum, average, min, max, count, distinctCount\n" +
               "  Date:   year, month, week, fullDate, dateTime, range, monthYear, quarterYear, weekYear, count, distinctCount"
           );
         }
       }
-      return logAndReturnError(error, "An error occurred while creating the report");
+      return failFromError(error, "An error occurred while creating the report");
     }
   },
 });
@@ -534,28 +609,28 @@ async function updateReportHandler({
 
       if (reportType === "chart") {
         if (!chartConfig) {
-          return ToolResponse("chartConfig is required when reportType is 'chart'.");
+          return fail("chartConfig is required when reportType is 'chart'.");
         }
         const { chartType, axisColumns: inputAxisColumns } = chartConfig;
 
         if (!chartType) {
-          return ToolResponse("Chart type is required. Please provide 'chartType' in chartConfig.");
+          return fail("Chart type is required. Please provide 'chartType' in chartConfig.");
         }
         if (!inputAxisColumns || inputAxisColumns.length === 0) {
-          return ToolResponse("At least one axis column must be provided in chartConfig.axisColumns.");
+          return fail("At least one axis column must be provided in chartConfig.axisColumns.");
         }
 
         // Validate each axis column has required fields
         for (let i = 0; i < inputAxisColumns.length; i++) {
           const col = inputAxisColumns[i];
           if (!col.columnName) {
-            return ToolResponse(`axisColumns[${i}] is missing 'columnName'.`);
+            return fail(`axisColumns[${i}] is missing 'columnName'.`);
           }
           if (!col.operation) {
-            return ToolResponse(`axisColumns[${i}] ('${col.columnName}') is missing 'operation'.`);
+            return fail(`axisColumns[${i}] ('${col.columnName}') is missing 'operation'.`);
           }
           if (!col.type) {
-            return ToolResponse(
+            return fail(
               `axisColumns[${i}] ('${col.columnName}') is missing 'type'. Must be one of: xAxis, yAxis, colorAxis, sizeAxis, textAxis.`
             );
           }
@@ -564,7 +639,7 @@ async function updateReportHandler({
         // Run compatibility validation
         const validation = validateChartCompatibility(chartType, inputAxisColumns as AxisColumnInput[]);
         if (!validation.valid) {
-          return ToolResponse(validation.error!);
+          return fail(validation.error!);
         }
 
         // Build payload axisColumns
@@ -585,7 +660,7 @@ async function updateReportHandler({
             if (
               !("columnName" in f && "operation" in f && "filterType" in f && "values" in f && "exclude" in f)
             ) {
-              return ToolResponse(
+              return fail(
                 "Each filter must contain 'columnName', 'operation', 'filterType', 'values', and 'exclude'."
               );
             }
@@ -593,7 +668,7 @@ async function updateReportHandler({
         }
       } else if (reportType === "summary") {
         if (!summaryConfig) {
-          return ToolResponse("summaryConfig is required when reportType is 'summary'.");
+          return fail("summaryConfig is required when reportType is 'summary'.");
         }
         const { groupBy, aggregate } = summaryConfig;
 
@@ -607,7 +682,7 @@ async function updateReportHandler({
         }
         for (const ag of aggregate) {
           if (ag.operation === "actual") {
-            return ToolResponse("Invalid operation 'actual' in aggregate. Use 'sum', 'count', etc.");
+            return fail("Invalid operation 'actual' in aggregate. Use 'sum', 'count', etc.");
           }
           axisColumns.push({
             type: "summarize",
@@ -619,10 +694,10 @@ async function updateReportHandler({
       } else {
         // reportType === "pivot"
         if (!pivotConfig) {
-          return ToolResponse("pivotConfig is required when reportType is 'pivot'.");
+          return fail("pivotConfig is required when reportType is 'pivot'.");
         }
         if (!pivotConfig.row && !pivotConfig.column && !pivotConfig.data) {
-          return ToolResponse(
+          return fail(
             "At least one of 'row', 'column', or 'data' must be provided in pivotConfig."
           );
         }
@@ -632,13 +707,13 @@ async function updateReportHandler({
           const axisList = pivotConfig[axisKey];
           if (axisList) {
             if (!Array.isArray(axisList) || axisList.length === 0) {
-              return ToolResponse(
+              return fail(
                 `'${axisKey}' must be a non-empty list with 'columnName', 'tableName', and 'operation'.`
               );
             }
             for (const entry of axisList) {
               if (!requiredKeys.every((k) => k in entry)) {
-                return ToolResponse(
+                return fail(
                   `Each entry in '${axisKey}' must contain 'columnName', 'tableName', and 'operation'.`
                 );
               }
@@ -659,7 +734,7 @@ async function updateReportHandler({
             if (
               !["columnName", "operation", "filterType", "values", "exclude"].every((k) => k in f)
             ) {
-              return ToolResponse(
+              return fail(
                 "Each filter must contain 'columnName', 'operation', 'filterType', 'values', and 'exclude'."
               );
             }
@@ -679,18 +754,18 @@ async function updateReportHandler({
           
           // Check required fields
           if (!uf.columnName) {
-            return ToolResponse(`userFilters[${i}] is missing required field 'columnName'.`);
+            return fail(`userFilters[${i}] is missing required field 'columnName'.`);
           }
           if (!uf.tableName) {
-            return ToolResponse(`userFilters[${i}] ('${uf.columnName}') is missing required field 'tableName'. Unlike static filters, tableName is mandatory for user filters.`);
+            return fail(`userFilters[${i}] ('${uf.columnName}') is missing required field 'tableName'. Unlike static filters, tableName is mandatory for user filters.`);
           }
           if (!uf.operation) {
-            return ToolResponse(`userFilters[${i}] ('${uf.columnName}') is missing required field 'operation'.`);
+            return fail(`userFilters[${i}] ('${uf.columnName}') is missing required field 'operation'.`);
           }
 
           // Validate compType requirement (required for all operations except 'dateRange')
           if (uf.operation !== "dateRange" && !uf.compType) {
-            return ToolResponse(
+            return fail(
               `userFilters[${i}] ('${uf.columnName}'): 'compType' is required for all operations except 'dateRange'. ` +
               `For dimensions and dates use 'singleSelect' or 'multiSelect'. For measures use 'slider' or 'multiSelect'.`
             );
@@ -698,7 +773,7 @@ async function updateReportHandler({
 
           // Validate behaviour field (not applicable for dateRange or relative operations)
           if ((uf.operation === "dateRange" || uf.operation === "relative") && uf.behaviour) {
-            return ToolResponse(
+            return fail(
               `userFilters[${i}] ('${uf.columnName}'): 'behaviour' field cannot be used with '${uf.operation}' operation. Remove the 'behaviour' field.`
             );
           }
@@ -712,7 +787,7 @@ async function updateReportHandler({
           // Need to verify if this validation is necessary.
           // This also restricts non-measure and non-date columns  with operations as "actual"
           // if ((isMeasureOperation || dateActualOrSeasonal) && uf.operation !== "dateRange" && uf.operation !== "relative" && !uf.filterType) {
-          //   return ToolResponse(
+          //   return fail(
           //     `userFilters[${i}] ('${uf.columnName}'): 'filterType' is required for operation '${uf.operation}'. ` +
           //     `For measures use: 'individualValues', 'range', 'ranking', or 'rankingPct'. ` +
           //     `For date actual use: 'year', 'quarteryear', 'monthyear', 'weekyear', 'fulldate', 'datetime', 'quarter', 'month', 'week', 'date'. ` +
@@ -732,7 +807,7 @@ async function updateReportHandler({
           const ac = getAnalyticsClient();
           const workspaceInst = ac.getWorkspaceInstance(org_id, workspace);
           await (workspaceInst as any).updateReport(reportId, conf);
-          return ToolResponse(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} report '${reportId}' updated successfully.`);
+          return ok(null, `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} report '${reportId}' updated successfully.`);
         },
         workspaceId
       );
@@ -740,16 +815,16 @@ async function updateReportHandler({
       if ("errorMessage" in error && "errorCode" in error) {
         const { errorMessage, errorCode } = error as { errorMessage: string; errorCode: number };
         if (errorCode === 8166) {
-          return ToolResponse(
-            errorMessage +
-              "\nSupported operations for columns of different types:\n" +
+          return fail(
+            { message: errorMessage, code: errorCode },
+            "Supported operations for columns of different types:\n" +
               "  String: actual, count, distinctCount\n" +
               "  Number: measure, dimension, sum, average, min, max, count, distinctCount\n" +
               "  Date:   year, month, week, fullDate, dateTime, range, monthYear, quarterYear, weekYear, count, distinctCount"
           );
         }
       }
-      return logAndReturnError(error, "An error occurred while updating the report");
+      return failFromError(error, "An error occurred while updating the report");
     }
 }
 
@@ -962,5 +1037,6 @@ defineTool({
       .optional()
       .describe("The ID of the organization. Defaults to config.ORGID if not provided."),
   },
+  returns: NoData,
   handler: updateReportHandler
 });

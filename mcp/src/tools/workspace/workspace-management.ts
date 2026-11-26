@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "../../tool-registry";
 import { getAnalyticsClient, config } from "../../utils/apiUtil";
-import { retryWithFallback, ToolResponse, logAndReturnError } from "../../utils/common";
+import { retryWithFallback } from "../../utils/common";
+import { ok, fail, failFromError } from "../../response";
+import { WorkspaceDto, idResult, listResult } from "../../dtos";
 
 // ---- Shared helpers ----
 
@@ -22,6 +24,14 @@ const filterAndLimitWorkspaces = (
   return filtered.map((w) => ({ ...w, owned: isOwned }));
 };
 
+const listWorkspacesResponse = (workspaces: any[], includesShared: boolean) =>
+  ok(
+    { workspaces, count: workspaces.length },
+    workspaces.length === 0
+      ? "No workspaces found."
+      : `Returned ${workspaces.length} workspace(s)${includesShared ? " (owned and shared)" : " (owned only; set includeSharedWorkspaces=true to include shared ones)"}. Results are capped at 20.`
+  );
+
 // ---- Tool Registrations ----
 
 defineTool({
@@ -30,12 +40,13 @@ defineTool({
   args: {
     workspaceName: z.string().describe("Name of the workspace to create"),
   },
+  returns: idResult("workspaceId", "ID of the newly created workspace"),
   handler: async ({ workspaceName }) => {
     try {
       const ac = getAnalyticsClient();
       const org = ac.getOrgInstance(config.ORGID || "");
       const workspace_id = await org.createWorkspace(workspaceName, {});
-      return ToolResponse(`Workspace '${workspaceName}' created successfully. Workspace Id: ${workspace_id}`);
+      return ok({ workspaceId: String(workspace_id) }, `Workspace '${workspaceName}' created successfully. Use data.workspaceId in subsequent operations.`);
     } catch (err) {
       if (
         typeof err === "object" &&
@@ -43,9 +54,9 @@ defineTool({
         "errorCode" in err &&
         (err as { errorCode: number }).errorCode === 7101
       ) {
-        return ToolResponse("Workspace name is already taken. Provide an alternate name.");
+        return fail({ message: "Workspace name is already taken. Provide an alternate name.", code: 7101, path: "workspaceName" });
       }
-      return logAndReturnError(err, "An error occurred while creating the workspace");
+      return failFromError(err, "An error occurred while creating the workspace");
     }
   },
 });
@@ -81,6 +92,7 @@ defineTool({
       .optional()
       .describe("Optional string to filter workspaces by a contains criterion"),
   },
+  returns: listResult("workspaces", WorkspaceDto),
 
   handler: async ({
     includeSharedWorkspaces = false,
@@ -99,9 +111,7 @@ defineTool({
           MAX_WORKSPACES
         );
 
-        return ToolResponse(
-          `List of owned workspaces: ${JSON.stringify(result)}`
-        );
+        return listWorkspacesResponse(result, false);
       }
 
       const allWorkspaces = await ac.getWorkspaces();
@@ -124,14 +134,9 @@ defineTool({
         remainingCapacity
       );
 
-      return ToolResponse(
-        JSON.stringify([...ownedResult, ...sharedResult])
-      );
+      return listWorkspacesResponse([...ownedResult, ...sharedResult], true);
     } catch (err) {
-      return logAndReturnError(
-        err,
-        "An error occurred while fetching workspaces"
-      );
+      return failFromError(err, "An error occurred while fetching workspaces");
     }
   },
 });

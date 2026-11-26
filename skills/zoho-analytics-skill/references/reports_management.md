@@ -44,18 +44,17 @@ Always provide **exactly one** config object matching `reportType`. Load the typ
 | `summary` | `summaryConfig` | [Summary Reports](./summary.md) |
 | `pivot` | `pivotConfig` | [Pivot Reports](./pivot.md) |
 
+**Returns (`data`):** `{ "reportId": string }` - the ID of the created report.
+
 **Tool call shape:**
-```
-execute_analytics_tool(
-    "createReport",
-    {
-        "workspaceId": "<workspace_id>",
-        "tableName": "<table_name>",
-        "reportName": "<report_name>",
-        "reportType": "<chart|summary|pivot>",
-        "<chartConfig|summaryConfig|pivotConfig>": { ... }
-    }
-)
+```js
+return await tools.createReport({
+    "workspaceId": "<workspace_id>",
+    "tableName": "<table_name>",
+    "reportName": "<report_name>",
+    "reportType": "<chart|summary|pivot>",
+    "<chartConfig|summaryConfig|pivotConfig>": { ... }
+})
 ```
 
 **Important notes:**
@@ -77,23 +76,23 @@ Retrieves the full design configuration of an existing report. This is a **read-
 | `reportId` | string | Yes | ID of the report to read |
 | `orgId` | string | No | Organization ID. Defaults to configured `ORGID` if omitted |
 
-**Returns:** A JSON object with the complete design configuration, including:
+**Returns (`data`):** `{ reportConfig }`, where `reportConfig` is the complete design configuration:
 - `title` — report name
 - `reportType` — `"chart"`, `"summary"`, or `"pivot"`
 - `chartType` — chart type (chart reports only)
-- `axisColumns` — full list of axis/groupBy/pivot column definitions
-- `filters` — active static filters
-- `userFilters` — user filter widgets (if any)
+- `baseTableName` — table the report is built on
+- `axisColumns` — full list of axis/groupBy/pivot column definitions (`{ type, columnName, tableName, operation }`)
+- `filters` — active static filters (absent when there are none)
+- `userFilters` — user filter widgets (absent when there are none)
+
+> **Values come back partly normalised.** Chart axis `type` and `filterType` use the same spelling as the input (`xAxis`, `individualValues`), so chart `axisColumns` and `filters` can be re-submitted as they are. `operation` may still differ from what you sent (`avg` → `average`). Summary and pivot reports return Zoho's own axis roles (`groupby`, `summarize`, `row`, `column`, `data`) in `axisColumns`; `updateReport` has no such input, so move those entries into `summaryConfig.groupBy` / `summaryConfig.aggregate` or `pivotConfig.row` / `column` / `data`.
 
 **Tool call:**
-```
-execute_analytics_tool(
-    "readReportMetadata",
-    {
-        "workspaceId": "123456789",
-        "reportId": "987654321"
-    }
-)
+```js
+return await tools.readReportMetadata({
+    "workspaceId": "123456789",
+    "reportId": "987654321"
+})
 ```
 
 ---
@@ -118,6 +117,8 @@ Updates (full-replaces) the configuration of an existing report. Supports all re
 | `filters` | array | No | **Omitting clears all existing filters.** See [Filters](./filters.md) |
 | `userFilters` | array | No | **Omitting clears all existing user filters.** See [User Filters](./user_filters.md) |
 | `orgId` | string | No | Organization ID. Defaults to configured `ORGID` if omitted |
+
+**Returns (`data`):** `null`; the confirmation is in `messages`.
 
 **Additional rules:**
 - Do **not** provide `baseTableName` — it is inferred from the existing report.
@@ -150,22 +151,19 @@ Operations by data type:
 See [Chart Reports](./charts.md) for the full chart type list, axis shelf rules, and compatibility notes.
 
 **Example — change a bar chart to a line chart:**
-```
-execute_analytics_tool(
-    "updateReport",
-    {
-        "workspaceId": "123456789",
-        "reportId": "987654321",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "line",
-            "axisColumns": [
-                {"type": "xAxis", "columnName": "Order Date", "operation": "monthYear"},
-                {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
-            ]
-        }
+```js
+return await tools.updateReport({
+    "workspaceId": "123456789",
+    "reportId": "987654321",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "line",
+        "axisColumns": [
+            {"type": "xAxis", "columnName": "Order Date", "operation": "monthYear"},
+            {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
+        ]
     }
-)
+})
 ```
 
 ---
@@ -189,24 +187,21 @@ execute_analytics_tool(
 - Every entry requires its own `tableName`, even when it's the same as the base table.
 
 **Example:**
-```
-execute_analytics_tool(
-    "updateReport",
-    {
-        "workspaceId": "123456789",
-        "reportId": "987654321",
-        "reportType": "summary",
-        "summaryConfig": {
-            "groupBy": [
-                {"columnName": "Order Date", "tableName": "Sales Data", "operation": "year"}
-            ],
-            "aggregate": [
-                {"columnName": "Sales Amount", "tableName": "Sales Data", "operation": "sum"},
-                {"columnName": "Order ID", "tableName": "Sales Data", "operation": "count"}
-            ]
-        }
+```js
+return await tools.updateReport({
+    "workspaceId": "123456789",
+    "reportId": "987654321",
+    "reportType": "summary",
+    "summaryConfig": {
+        "groupBy": [
+            {"columnName": "Order Date", "tableName": "Sales Data", "operation": "year"}
+        ],
+        "aggregate": [
+            {"columnName": "Sales Amount", "tableName": "Sales Data", "operation": "sum"},
+            {"columnName": "Order ID", "tableName": "Sales Data", "operation": "count"}
+        ]
     }
-)
+})
 ```
 
 ---
@@ -232,44 +227,38 @@ execute_analytics_tool(
 **Task:** Change the Y-axis aggregate from `count` to `sum` on a chart, preserving its existing filters.
 
 **Step 1 — Read current config:**
-```
-execute_analytics_tool(
-    "readReportMetadata",
-    {
-        "workspaceId": "123456789",
-        "reportId": "987654321"
-    }
-)
+```js
+return await tools.readReportMetadata({
+    "workspaceId": "123456789",
+    "reportId": "987654321"
+})
 ```
 
 **Step 2 — Inspect the returned JSON.** Note the current `chartType`, `axisColumns`, `filters`, and `userFilters`.
 
 **Step 3 — Submit update with the modified field, re-submitting everything else to preserve it:**
-```
-execute_analytics_tool(
-    "updateReport",
-    {
-        "workspaceId": "123456789",
-        "reportId": "987654321",
-        "reportType": "chart",
-        "chartConfig": {
-            "chartType": "bar",
-            "axisColumns": [
-                {"type": "xAxis", "columnName": "Product Category", "operation": "actual"},
-                {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
-            ]
-        },
-        "filters": [
-            {
-                "columnName": "Region",
-                "operation": "actual",
-                "filterType": "individualValues",
-                "values": ["West", "North"],
-                "exclude": false
-            }
+```js
+return await tools.updateReport({
+    "workspaceId": "123456789",
+    "reportId": "987654321",
+    "reportType": "chart",
+    "chartConfig": {
+        "chartType": "bar",
+        "axisColumns": [
+            {"type": "xAxis", "columnName": "Product Category", "operation": "actual"},
+            {"type": "yAxis", "columnName": "Sales Amount", "operation": "sum"}
         ]
-    }
-)
+    },
+    "filters": [
+        {
+            "columnName": "Region",
+            "operation": "actual",
+            "filterType": "individualValues",
+            "values": ["West", "North"],
+            "exclude": false
+        }
+    ]
+})
 ```
 
 > Filters from Step 2 are re-submitted explicitly to preserve them. Omitting them would clear them.

@@ -19,37 +19,36 @@ This skill provides programmatic access to the Zoho Analytics Operations, enabli
 
 ## How This Skill Interacts with Zoho Analytics
 
-All interactions with Zoho Analytics occur through a single **master tool** called `execute_analytics_tool`. This is an MCP (Model Context Protocol) tool provided by the Zoho Analytics MCP server.
+All interactions with Zoho Analytics use **code mode**, through two MCP tools provided by the Zoho Analytics MCP server:
 
-### Master Tool: execute_analytics_tool
+- `get_signature`: returns the TypeScript signature of each operation (arguments and the exact type of the returned `data`).
+- `execute_code`: runs JavaScript in a sandbox where every operation is an async function, `await tools.<toolName>(args)`.
 
-**Purpose:** Routes requests to specific Zoho Analytics operations based on the tool name provided.
+Authentication (OAuth 2.0, including token refresh) is handled by the server. You never provide credentials.
 
-**Parameters:**
-- `tool_name` (string, required) — The camelCase name of the specific operation to execute (e.g., `createWorkspace`, `importData`, `createChart`)
-- `tool_args` (object, required) — A dictionary/object containing the arguments required by the specific tool
+**How to use this skill:**
+1. Find the operation you need in the sections below and open its reference file for the tool name, arguments and examples.
+2. Call `get_signature` with the camelCase tool names you plan to use.
+3. Call `execute_code` and invoke the operations as `await tools.<toolName>(args)`. Chain, loop and batch as needed in one call.
 
-**Authentication:** 
-The tool handles OAuth 2.0 authentication automatically, including token refresh. You don't need to provide credentials or manage tokens — just call the tool with the appropriate tool name and arguments.
+Always read [Code Mode](./references/code_mode.md) first: it covers how to write the code, result handling, errors, sandbox limits and examples.
 
-**Usage Pattern:**
+### Response Format
+
+Inside `execute_code`, every operation resolves with the same envelope:
+
 ```json
 {
-  "tool_name": "specificOperationName",
-  "tool_args": {
-    "param1": "value1",
-    "param2": "value2"
-  }
+    "status": "success",
+    "messages": ["Helpful notes, hints and warnings, e.g. suggested next steps"],
+    "errors": [],
+    "data": { }
 }
 ```
 
-**How to Use This Skill:**
-1. Identify what operation you need (workspace management, data operations, etc.) using the sections below
-2. Navigate to the appropriate reference file
-3. Find the specific tool name and required arguments
-4. Call `execute_analytics_tool` with the tool name and arguments as shown in the examples
-
-**Important:** You will only see `execute_analytics_tool` in your available tools. The actual operation routing happens internally based on the `tool_name` you provide.
+- `messages`: read these. They contain hints, warnings and notices such as truncated results.
+- `data`: the operation's result (`null` for operations that have nothing to return, such as deletes and updates). The reference files list the `data` fields of each operation, for example `data.workspaceId` for `createWorkspace`. Created IDs are always returned in `data`, never embedded in a message.
+- A failed operation does not resolve: the call **rejects** with an `Error` carrying `errors` (`{ message, code?, path? }`) and `messages`. See [Code Mode](./references/code_mode.md#errors).
 
 ## Operation Categories
 

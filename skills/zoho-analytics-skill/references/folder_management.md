@@ -19,27 +19,21 @@ Arguments:
 - `workspaceId` (required): The ID of the workspace to list folders from.
 - `orgId` (optional): Organization ID. Defaults to the configured `ORGID`.
 
-```
-execute_analytics_tool(
-    "getFolders",
-    {
-        "workspaceId": "<workspace_id>"
-    }
-)
+```js
+return await tools.getFolders({
+    "workspaceId": "<workspace_id>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "getFolders",
-    {
-        "workspaceId": "123456789"
-    }
-)
+```js
+return await tools.getFolders({
+    "workspaceId": "123456789"
+})
 ```
 
-Sample response:
+`data`: `{ folders: Folder[], count: number }`. Sample `data.folders`:
 ```json
 [
     {
@@ -72,47 +66,38 @@ Arguments:
 - `makeDefaultFolder` (optional): Set to `true` to make this folder the default. Defaults to `false`.
 - `orgId` (optional): Organization ID. Defaults to the configured `ORGID`.
 
-```
-execute_analytics_tool(
-    "createFolder",
-    {
-        "workspaceId": "<workspace_id>",
-        "folderName": "<folder_name>",
-        "folderDesc": "<description>",
-        "parentFolderId": "<parent_folder_id>",
-        "makeDefaultFolder": false
-    }
-)
+```js
+return await tools.createFolder({
+    "workspaceId": "<workspace_id>",
+    "folderName": "<folder_name>",
+    "folderDesc": "<description>",
+    "parentFolderId": "<parent_folder_id>",
+    "makeDefaultFolder": false
+})
 ```
 
 Example — create a root-level folder:
 
-```
-execute_analytics_tool(
-    "createFolder",
-    {
-        "workspaceId": "123456789",
-        "folderName": "Sales Reports",
-        "folderDesc": "All sales-related reports and dashboards"
-    }
-)
+```js
+return await tools.createFolder({
+    "workspaceId": "123456789",
+    "folderName": "Sales Reports",
+    "folderDesc": "All sales-related reports and dashboards"
+})
 ```
 
 Example — create a sub-folder under an existing root folder:
 
-```
-execute_analytics_tool(
-    "createFolder",
-    {
-        "workspaceId": "123456789",
-        "folderName": "Q1 Breakdown",
-        "folderDesc": "Quarter 1 detailed reports",
-        "parentFolderId": "111111111"
-    }
-)
+```js
+return await tools.createFolder({
+    "workspaceId": "123456789",
+    "folderName": "Q1 Breakdown",
+    "folderDesc": "Quarter 1 detailed reports",
+    "parentFolderId": "111111111"
+})
 ```
 
-Returns: A success message with the new folder's ID.
+Returns (`data`): `{ "folderId": string }` - the ID of the new folder.
 
 
 ## 3. Rename a Folder
@@ -125,28 +110,22 @@ Arguments:
 - `newFolderName` (required): The new display name for the folder.
 - `orgId` (optional): Organization ID. Defaults to the configured `ORGID`.
 
-```
-execute_analytics_tool(
-    "renameFolder",
-    {
-        "workspaceId": "<workspace_id>",
-        "folderId": "<folder_id>",
-        "newFolderName": "<new_name>"
-    }
-)
+```js
+return await tools.renameFolder({
+    "workspaceId": "<workspace_id>",
+    "folderId": "<folder_id>",
+    "newFolderName": "<new_name>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "renameFolder",
-    {
-        "workspaceId": "123456789",
-        "folderId": "111111111",
-        "newFolderName": "Revenue Reports"
-    }
-)
+```js
+return await tools.renameFolder({
+    "workspaceId": "123456789",
+    "folderId": "111111111",
+    "newFolderName": "Revenue Reports"
+})
 ```
 
 
@@ -160,28 +139,22 @@ Arguments:
 - `viewIds` (required): An array of view IDs to move. Use `searchViews` (see [Workspace Management](./workspace_management.md)) to look up view IDs.
 - `orgId` (optional): Organization ID. Defaults to the configured `ORGID`.
 
-```
-execute_analytics_tool(
-    "moveViewsToFolder",
-    {
-        "workspaceId": "<workspace_id>",
-        "folderId": "<folder_id>",
-        "viewIds": ["<view_id_1>", "<view_id_2>"]
-    }
-)
+```js
+return await tools.moveViewsToFolder({
+    "workspaceId": "<workspace_id>",
+    "folderId": "<folder_id>",
+    "viewIds": ["<view_id_1>", "<view_id_2>"]
+})
 ```
 
 Example — move two reports into a folder:
 
-```
-execute_analytics_tool(
-    "moveViewsToFolder",
-    {
-        "workspaceId": "123456789",
-        "folderId": "111111111",
-        "viewIds": ["987654321", "876543210"]
-    }
-)
+```js
+return await tools.moveViewsToFolder({
+    "workspaceId": "123456789",
+    "folderId": "111111111",
+    "viewIds": ["987654321", "876543210"]
+})
 ```
 
 
@@ -198,46 +171,31 @@ Important Notes:
 - If the folder still contains views, the operation will fail. Move views out first.
 - This operation is irreversible.
 
-```
-execute_analytics_tool(
-    "deleteFolder",
-    {
-        "workspaceId": "<workspace_id>",
-        "folderId": "<folder_id>"
-    }
-)
+```js
+return await tools.deleteFolder({
+    "workspaceId": "<workspace_id>",
+    "folderId": "<folder_id>"
+})
 ```
 
 Example:
 
-```
-execute_analytics_tool(
-    "deleteFolder",
-    {
-        "workspaceId": "123456789",
-        "folderId": "111111111"
-    }
-)
+```js
+return await tools.deleteFolder({
+    "workspaceId": "123456789",
+    "folderId": "111111111"
+})
 ```
 
 
 ## Common Workflow: Reorganize a Workspace
 
-```
-# Step 1: Discover existing folders
-execute_analytics_tool("getFolders", { "workspaceId": "123456789" })
-
-# Step 2: Find the views to move
-execute_analytics_tool("searchViews", { "workspaceId": "123456789", "viewContainsStr": "sales" })
-
-# Step 3: Create a new folder
-execute_analytics_tool("createFolder", { "workspaceId": "123456789", "folderName": "Sales Reports" })
-# → Returns folderId: "111111111"
-
-# Step 4: Move views into the folder
-execute_analytics_tool("moveViewsToFolder", {
-    "workspaceId": "123456789",
-    "folderId": "111111111",
-    "viewIds": ["987654321", "876543210"]
-})
+```js
+// Discover folders, find the views, create a folder and move the views in, in one call
+const workspaceId = "123456789";
+const { data: { folders } } = await tools.getFolders({ workspaceId });
+const { data: { views } } = await tools.searchViews({ workspaceId, viewContainsStr: "sales" });
+const { data: { folderId } } = await tools.createFolder({ workspaceId, folderName: "Sales Reports" });
+await tools.moveViewsToFolder({ workspaceId, folderId, viewIds: views.map(v => v.viewId) });
+return { existingFolders: folders.length, moved: views.length, folderId };
 ```

@@ -27,21 +27,17 @@ Permanently removes an aggregate formula from a workspace in Zoho Analytics.
 
 ### Tool Call
 
-```
-execute_analytics_tool(
-    "deleteAggregateFormula",
-    {
-        "workspaceId": "<workspace_id>",
-        "formulaId": "<formula_id>",
-        "deleteDependentViews": false
-    }
-)
+```js
+return await tools.deleteAggregateFormula({
+    "workspaceId": "<workspace_id>",
+    "formulaId": "<formula_id>",
+    "deleteDependentViews": false
+})
 ```
 
 ### Returns
 
-A success message confirming deletion, e.g.:
-`Aggregate formula (ID: 111111111) deleted successfully.`
+`data` is `null`; the confirmation is in `messages`.
 
 ---
 
@@ -49,27 +45,21 @@ A success message confirming deletion, e.g.:
 
 Example — safe delete (fails if dependent views exist):
 
-```
-execute_analytics_tool(
-    "deleteAggregateFormula",
-    {
-        "workspaceId": "123456789",
-        "formulaId": "111111111"
-    }
-)
+```js
+return await tools.deleteAggregateFormula({
+    "workspaceId": "123456789",
+    "formulaId": "111111111"
+})
 ```
 
 Example — cascade delete (also deletes all dependent reports/dashboards):
 
-```
+```js
 // Only use after confirming with the user that dependent views can be deleted
 
-execute_analytics_tool(
-    "deleteAggregateFormula",
-    {
-        "workspaceId": "123456789",
-        "formulaId": "111111111",
-        "deleteDependentViews": true
-    }
-)
+return await tools.deleteAggregateFormula({
+    "workspaceId": "123456789",
+    "formulaId": "111111111",
+    "deleteDependentViews": true
+})
 ```

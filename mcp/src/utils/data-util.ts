@@ -76,3 +76,63 @@ export async function pollJobCompletion(
 
     return null;
 }
+
+/** RFC 4180 compatible CSV parser (handles quoted fields containing commas, quotes and newlines). */
+export function parseCsvRows(csv: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  const text = csv.replace(/^\uFEFF/, "");
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(field);
+      field = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(field);
+      field = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else {
+      field += ch;
+    }
+  }
+  if (field !== "" || row.length > 0) {
+    row.push(field);
+    if (row.length > 1 || row[0] !== "") rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Zoho names a chart report "Chart View" inside `involvedViews`, but "AnalysisView" everywhere else
+ * (searchViews, getViewDetails.viewType). Aligns involvedViews with the vocabulary used by `viewType`.
+ */
+const INVOLVED_VIEW_TYPE_ALIASES: Record<string, string> = { "Chart View": "AnalysisView" };
+
+export function normalizeInvolvedViews<T extends { involvedViews?: unknown }>(details: T): T {
+  if (details && Array.isArray(details.involvedViews)) {
+    details.involvedViews = details.involvedViews.map((v: any) =>
+      v && typeof v.viewType === "string" && INVOLVED_VIEW_TYPE_ALIASES[v.viewType]
+        ? { ...v, viewType: INVOLVED_VIEW_TYPE_ALIASES[v.viewType] }
+        : v
+    );
+  }
+  return details;
+}
