@@ -46,7 +46,7 @@ registerCodeModeTools(server);
 const transport = new StdioServerTransport();
 (async () => {
   await server.connect(transport);
-  console.error("Zoho Analytics Plugin Compatible MCP server is running and connected to stdin/stdout::v1.0.6");
+  console.error("Zoho Analytics Plugin Compatible MCP server is running and connected to stdin/stdout::v1.0.9");
 })().catch((error) => {
   console.error("Failed to start Zoho Analytics Plugin MCP server:", error);
   process.exit(1);
